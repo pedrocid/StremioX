@@ -12,8 +12,36 @@ struct UserProfile: Codable, Identifiable, Equatable {
     var pin: String? = nil             // 4-digit parental gate, nil = open
     var usesOwnAccount: Bool = false   // true = its own Stremio session in its own Keychain slot
     var email: String? = nil           // bound account email, display only
+    /// The account's main profile (the one created by migration). It uses the account's own watch
+    /// history, exactly like before profiles existed. Every other shared profile keeps its own.
+    var isOwner: Bool = false
 
     var hasPin: Bool { !(pin ?? "").isEmpty }
+    /// Whether this profile's history is the account library itself (the owner, and any profile on
+    /// its own account) or a private synced overlay (every other shared profile).
+    var usesEngineHistory: Bool { isOwner || usesOwnAccount }
+
+    /// Tolerant decoding so rosters saved by older builds (without the newer keys) still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Profile"
+        avatar = try c.decodeIfPresent(String.self, forKey: .avatar) ?? "🍿"
+        accentID = try c.decodeIfPresent(String.self, forKey: .accentID) ?? "ember"
+        oled = try c.decodeIfPresent(Bool.self, forKey: .oled) ?? false
+        pin = try c.decodeIfPresent(String.self, forKey: .pin)
+        usesOwnAccount = try c.decodeIfPresent(Bool.self, forKey: .usesOwnAccount) ?? false
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+    }
+
+    init(id: UUID = UUID(), name: String, avatar: String, accentID: String = "ember",
+         oled: Bool = false, pin: String? = nil, usesOwnAccount: Bool = false,
+         email: String? = nil, isOwner: Bool = false) {
+        self.id = id; self.name = name; self.avatar = avatar; self.accentID = accentID
+        self.oled = oled; self.pin = pin; self.usesOwnAccount = usesOwnAccount
+        self.email = email; self.isOwner = isOwner
+    }
 }
 
 /// The profile roster and the active selection. The roster persists as JSON in UserDefaults; each
@@ -28,15 +56,30 @@ final class ProfileStore: ObservableObject {
     /// The launch picker shows once per cold start, and only when there is a real choice to make.
     /// Settings re-opens it by flipping this back to false.
     @Published var pickedThisLaunch = false
+    /// The ACTIVE overlay profile's private watch state, keyed by meta id. Drives its Continue
+    /// Watching rail, resume, and watched markers. Empty for the owner profile (it uses the
+    /// account library directly).
+    @Published private(set) var watch: [String: WatchEntry] = [:]
 
     private static let listKey = "stremiox.profiles"
     private static let activeKey = "stremiox.profiles.active"
+    private static let modifiedKey = "stremiox.profiles.modified"
+    private static func watchCacheKey(_ id: UUID) -> String { "stremiox.profiles.watch." + id.uuidString }
     /// The pre-profiles single-account Keychain slot; shared profiles keep using it.
     static let primaryTokenAccount = "stremiox.authKey"
+
+    private var pushRosterTask: Task<Void, Never>?
+    private var pushWatchTask: Task<Void, Never>?
 
     private init() {
         load()
         if profiles.isEmpty { migrateFromSingleAccount() }
+        // Rosters saved before history separation existed have no owner; the migrated first
+        // profile is the account's main one.
+        if !profiles.contains(where: { $0.isOwner }), !profiles.isEmpty {
+            profiles[0].isOwner = true
+            persist(touch: false)
+        }
         if activeID == nil || !profiles.contains(where: { $0.id == activeID }) {
             activeID = profiles.first?.id
         }
@@ -45,7 +88,10 @@ final class ProfileStore: ObservableObject {
             ThemeManager.shared.accentID = active.accentID
             ThemeManager.shared.oled = active.oled
         }
+        loadWatchCache()
     }
+
+    var activeUsesEngineHistory: Bool { active?.usesEngineHistory ?? true }
 
     var active: UserProfile? { profiles.first { $0.id == activeID } }
     var needsPicker: Bool { profiles.count > 1 && !pickedThisLaunch }
@@ -71,9 +117,11 @@ final class ProfileStore: ObservableObject {
         let beforeAccount = active.map(keychainAccount(for:))
         activeID = profile.id
         pickedThisLaunch = true
-        persist()
+        persist(touch: false)   // selection is per-device, not a roster edit
         ThemeManager.shared.accentID = profile.accentID
         ThemeManager.shared.oled = profile.oled
+        loadWatchCache()
+        refreshWatchFromServer()
         let nowAccount = keychainAccount(for: profile)
         if nowAccount == beforeAccount { return .sameAccount }
         if let token = Keychain.string(nowAccount), !token.isEmpty { return .switchAccount(token: token) }
@@ -102,6 +150,7 @@ final class ProfileStore: ObservableObject {
         guard profiles.count > 1, profiles.contains(where: { $0.id == profile.id }) else { return nil }
         profiles.removeAll { $0.id == profile.id }
         if profile.usesOwnAccount { Keychain.set(nil, for: keychainAccount(for: profile)) }
+        UserDefaults.standard.removeObject(forKey: Self.watchCacheKey(profile.id))
         persist()
         if activeID == profile.id, let first = profiles.first { return select(first) }
         return nil
@@ -127,10 +176,10 @@ final class ProfileStore: ObservableObject {
         let first = UserProfile(name: name, avatar: "🍿",
                                 accentID: ThemeManager.shared.accentID,
                                 oled: ThemeManager.shared.oled,
-                                usesOwnAccount: false, email: email)
+                                usesOwnAccount: false, email: email, isOwner: true)
         profiles = [first]
         activeID = first.id
-        persist()
+        persist(touch: false)   // migration isn't an edit; don't race a remote roster pull
     }
 
     private func load() {
@@ -143,10 +192,181 @@ final class ProfileStore: ObservableObject {
         }
     }
 
-    private func persist() {
+    /// `touch` marks a real roster edit (add/update/remove): it bumps the local modification time
+    /// and schedules a push, so the roster follows the account to other devices.
+    private func persist(touch: Bool = true) {
         if let data = try? JSONEncoder().encode(profiles) {
             UserDefaults.standard.set(data, forKey: Self.listKey)
         }
         UserDefaults.standard.set(activeID?.uuidString, forKey: Self.activeKey)
+        if touch {
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.modifiedKey)
+            schedulePushRoster()
+        }
+    }
+
+    // MARK: Roster sync (the profile list follows the primary account across devices)
+
+    /// Pull the remote roster once the account is reachable; newest side wins wholesale. AuthKeys
+    /// never sync (each device signs into own-account profiles once); looks, PINs, and identity do.
+    func bootstrapSync() {
+        guard let key = Keychain.string(Self.primaryTokenAccount), !key.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if let remote = await ProfileSync.fetchRoster(authKey: key) {
+                let localModified = Date(timeIntervalSince1970:
+                    UserDefaults.standard.double(forKey: Self.modifiedKey))
+                if remote.mtime > localModified {
+                    await MainActor.run { self.adoptRemoteRoster(remote.profiles) }
+                } else if localModified > remote.mtime {
+                    await ProfileSync.pushRoster(self.profiles, authKey: key)
+                }
+            } else if !profiles.isEmpty {
+                await ProfileSync.pushRoster(profiles, authKey: key)   // first device seeds the roster
+            }
+            refreshWatchFromServer()
+        }
+    }
+
+    private func adoptRemoteRoster(_ remote: [UserProfile]) {
+        profiles = remote
+        if !profiles.contains(where: { $0.id == activeID }) { activeID = profiles.first?.id }
+        if let active {
+            ThemeManager.shared.accentID = active.accentID
+            ThemeManager.shared.oled = active.oled
+        }
+        persist(touch: false)
+        loadWatchCache()
+    }
+
+    private func schedulePushRoster() {
+        pushRosterTask?.cancel()
+        guard let key = Keychain.string(Self.primaryTokenAccount), !key.isEmpty else { return }
+        let snapshot = profiles
+        pushRosterTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await ProfileSync.pushRoster(snapshot, authKey: key)
+        }
+    }
+
+    // MARK: Watch overlay (a non-owner profile's own history, synced through the account)
+
+    /// Continue Watching for the active overlay profile, newest first. Mirrors the account rail's
+    /// rules: anything actually watched stays; a finished MOVIE leaves (a series continues with
+    /// the next episode).
+    var cwItems: [CoreCWItem] {
+        var dated: [(lastWatched: String, item: CoreCWItem)] = []
+        for (metaId, entry) in watch {
+            if entry.type == "movie", entry.durationMs > 0,
+               Double(entry.timeOffsetMs) >= Double(entry.durationMs) * 0.95 { continue }
+            guard entry.timeOffsetMs > 0 || !entry.watchedVideoIds.isEmpty else { continue }
+            let item = CoreCWItem(id: metaId, type: entry.type, name: entry.name, poster: entry.poster,
+                                  state: CoreLibState(timeOffset: Double(entry.timeOffsetMs),
+                                                      duration: Double(entry.durationMs),
+                                                      videoId: entry.videoId))
+            dated.append((entry.lastWatched, item))
+        }
+        return dated.sorted { $0.lastWatched > $1.lastWatched }.prefix(30).map(\.item)
+    }
+
+    /// Player progress for an overlay profile (the StremioAccount/CoreBridge layers route here
+    /// when the active profile keeps its own history).
+    func recordProgress(meta: PlaybackMeta, positionSeconds: Double, durationSeconds: Double) {
+        guard durationSeconds > 0 else { return }
+        var entry = watch[meta.libraryId] ?? WatchEntry(
+            videoId: meta.videoId, timeOffsetMs: 0, durationMs: 0, lastWatched: "",
+            name: meta.name, type: meta.type, poster: meta.poster)
+        entry.videoId = meta.videoId
+        entry.timeOffsetMs = Int((positionSeconds * 1000).rounded())
+        entry.durationMs = Int((durationSeconds * 1000).rounded())
+        entry.lastWatched = Self.isoNow()
+        entry.name = meta.name
+        entry.poster = meta.poster ?? entry.poster
+        watch[meta.libraryId] = entry
+        saveWatchCache()
+        schedulePushWatch()
+    }
+
+    /// Saved resume position in seconds (0 = start fresh); series only resume the same episode.
+    func resumeOffset(for meta: PlaybackMeta) -> Double {
+        guard let entry = watch[meta.libraryId] else { return 0 }
+        if meta.type == "series", let saved = entry.videoId, saved != meta.videoId { return 0 }
+        return entry.timeOffsetMs > 0 ? Double(entry.timeOffsetMs) / 1000 : 0
+    }
+
+    func markWatched(meta: PlaybackMeta) {
+        var entry = watch[meta.libraryId] ?? WatchEntry(
+            videoId: meta.videoId, timeOffsetMs: 0, durationMs: 0, lastWatched: Self.isoNow(),
+            name: meta.name, type: meta.type, poster: meta.poster)
+        if !entry.watchedVideoIds.contains(meta.videoId) { entry.watchedVideoIds.append(meta.videoId) }
+        watch[meta.libraryId] = entry
+        saveWatchCache()
+        schedulePushWatch()
+    }
+
+    /// A title finished (movie, or a series' last episode): zero the offset so it leaves the rail.
+    func finishedWatching(metaId: String) {
+        guard var entry = watch[metaId] else { return }
+        entry.timeOffsetMs = 0
+        watch[metaId] = entry
+        saveWatchCache()
+        schedulePushWatch()
+    }
+
+    /// Background refresh from the account, so history follows the profile across devices.
+    func refreshWatchFromServer() {
+        guard let profile = active, !profile.usesEngineHistory,
+              let key = Keychain.string(keychainAccount(for: profile)), !key.isEmpty else { return }
+        let id = profile.id
+        Task { [weak self] in
+            guard let remote = await ProfileSync.fetchWatch(profileID: id, authKey: key) else { return }
+            await MainActor.run {
+                guard let self, self.activeID == id else { return }
+                // Merge by newest lastWatched per title, so a stale device can't roll back progress.
+                var merged = remote
+                for (metaId, local) in self.watch where (merged[metaId]?.lastWatched ?? "") < local.lastWatched {
+                    merged[metaId] = local
+                }
+                self.watch = merged
+                self.saveWatchCache()
+            }
+        }
+    }
+
+    private func schedulePushWatch() {
+        pushWatchTask?.cancel()
+        guard let profile = active, !profile.usesEngineHistory,
+              let key = Keychain.string(keychainAccount(for: profile)), !key.isEmpty else { return }
+        let snapshot = watch
+        let id = profile.id
+        pushWatchTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await ProfileSync.pushWatch(snapshot, profileID: id, authKey: key)
+        }
+    }
+
+    private func loadWatchCache() {
+        guard let profile = active, !profile.usesEngineHistory else { watch = [:]; return }
+        if let data = UserDefaults.standard.data(forKey: Self.watchCacheKey(profile.id)),
+           let cached = try? JSONDecoder().decode([String: WatchEntry].self, from: data) {
+            watch = cached
+        } else {
+            watch = [:]
+        }
+    }
+
+    private func saveWatchCache() {
+        guard let profile = active else { return }
+        if let data = try? JSONEncoder().encode(watch) {
+            UserDefaults.standard.set(data, forKey: Self.watchCacheKey(profile.id))
+        }
+    }
+
+    private static func isoNow() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date())
     }
 }

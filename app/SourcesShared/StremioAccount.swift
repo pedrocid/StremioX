@@ -261,8 +261,12 @@ final class StremioAccount: ObservableObject {
     // MARK: - Watch progress (tvOS writes the playback position back to the account library)
 
     /// Saved resume position in **seconds** for `meta` (0 = start fresh). For series, only resumes
-    /// when the stored progress is for the same episode the user is opening.
+    /// when the stored progress is for the same episode the user is opening. Overlay profiles
+    /// (a non-owner shared profile) resume from their own private history instead.
     func resumeOffset(for meta: PlaybackMeta) async -> Double {
+        if !ProfileStore.shared.activeUsesEngineHistory {
+            return ProfileStore.shared.resumeOffset(for: meta)
+        }
         guard let key = authKey,
               let item = await rawLibraryItem(id: meta.libraryId, authKey: key),
               let state = item["state"] as? [String: Any] else { return 0 }
@@ -274,7 +278,13 @@ final class StremioAccount: ObservableObject {
     /// Upsert the library item with the current playback position so Continue Watching reflects what
     /// was watched on Apple TV. Fetches the existing item and mutates only the progress fields so no
     /// other client's data is clobbered; creates a minimal item only if it's new to the library.
+    /// Overlay profiles write to their own private synced history and never touch the account library.
     func saveProgress(for meta: PlaybackMeta, positionSeconds: Double, durationSeconds: Double) async {
+        if !ProfileStore.shared.activeUsesEngineHistory {
+            ProfileStore.shared.recordProgress(meta: meta, positionSeconds: positionSeconds,
+                                               durationSeconds: durationSeconds)
+            return
+        }
         guard let key = authKey, durationSeconds > 0, positionSeconds >= 0 else { return }
         let now = Self.isoNow()
         var item = await rawLibraryItem(id: meta.libraryId, authKey: key) ?? Self.newLibraryItem(meta, now: now)

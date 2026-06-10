@@ -236,6 +236,12 @@ struct ProfileEditorView: View {
                              ?? "You'll be asked to sign in when this profile is first opened.")
                             .font(Theme.Typography.label)
                             .foregroundStyle(Theme.Palette.textTertiary)
+                    } else {
+                        Text(draft.isOwner
+                             ? "The main profile. It uses the account's own watch history, like before profiles existed."
+                             : "Keeps its own watch history, synced through your Stremio account to your other devices.")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Palette.textTertiary)
                     }
 
                     row("PIN") {
