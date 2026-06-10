@@ -35,6 +35,9 @@ struct StremioTVApp: App {
             .environmentObject(ProfileStore.shared)
             .preferredColorScheme(.dark)
             .onAppear {
+                // Pull the synced profile roster + the active profile's watch overlay (and seed
+                // them on first run), so profiles follow the account across devices.
+                ProfileStore.shared.bootstrapSync()
                 // DIAGNOSTIC (-tv-playertest): exercise the real root-replacement path without an account.
                 guard ProcessInfo.processInfo.arguments.contains("-tv-playertest") else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

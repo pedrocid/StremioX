@@ -6,7 +6,14 @@ struct HomeView: View {
     @EnvironmentObject private var core: CoreBridge
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var account: StremioAccount
+    @EnvironmentObject private var profiles: ProfileStore
     @StateObject private var focusModel = FocusedItemModel()
+
+    /// The owner profile rides the account's Continue Watching; overlay profiles ride their own
+    /// private synced history.
+    private var continueWatching: [CoreCWItem] {
+        profiles.activeUsesEngineHistory ? core.continueWatching : profiles.cwItems
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,13 +28,16 @@ struct HomeView: View {
                 // THIS viewport, so they are geometrically incapable of riding up over the hero.
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Theme.Space.xl) {
-                        if !core.continueWatching.isEmpty {
-                            CoreContinueWatchingRow(items: core.continueWatching, focusModel: focusModel)
+                        if !continueWatching.isEmpty {
+                            CoreContinueWatchingRow(items: continueWatching, focusModel: focusModel,
+                                                    // the long-press menu mutates the ACCOUNT library;
+                                                    // overlay rails manage their own history
+                                                    menu: profiles.activeUsesEngineHistory ? .continueWatching : .none)
                         }
                         ForEach(core.boardRows) { row in
                             CoreCatalogRowView(row: row, focusModel: focusModel)
                         }
-                        if core.continueWatching.isEmpty && core.boardRows.isEmpty {
+                        if continueWatching.isEmpty && core.boardRows.isEmpty {
                             if account.isSignedIn { LoadingRail() } else { CoreEmptyState.signedOut }
                         }
                     }
@@ -47,6 +57,7 @@ struct HomeView: View {
         .onAppear { configureMetaSources(); seed() }
         .onChange(of: core.boardRows.first?.id) { seed() }
         .onChange(of: core.continueWatching.first?.id) { seed() }
+        .onChange(of: profiles.activeID) { seed() }
         .onChange(of: core.addons.count) { configureMetaSources() }
     }
 
@@ -59,9 +70,9 @@ struct HomeView: View {
     /// First render shows the page's actual first item, and Continue Watching pre-fetches its
     /// details so heroes are rich on first focus.
     private func seed() {
-        focusModel.seedIfEmpty(core.continueWatching.first?.focusedHero
+        focusModel.seedIfEmpty(continueWatching.first?.focusedHero
                                ?? core.boardRows.first?.items.first?.focusedHero)
-        focusModel.warm(core.continueWatching.map(\.focusedHero))
+        focusModel.warm(continueWatching.map(\.focusedHero))
     }
 
     /// Serif wordmark, the editorial signature: warm-white "Stremio" with an ember "X".
@@ -95,6 +106,7 @@ struct RailHeader: View {
 struct CoreContinueWatchingRow: View {
     let items: [CoreCWItem]
     var focusModel: FocusedItemModel? = nil
+    var menu: PosterMenu = .continueWatching   // .none on overlay-profile rails (engine menu doesn't apply)
     @EnvironmentObject private var theme: ThemeManager   // observe so the rail's cards repaint on a theme change
 
     var body: some View {
@@ -105,7 +117,7 @@ struct CoreContinueWatchingRow: View {
                     ForEach(items) { item in
                         PosterCard(title: item.name, poster: item.poster,
                                    type: item.type, id: item.id, progress: item.progress,
-                                   menu: .continueWatching,
+                                   menu: menu,
                                    onFocus: focusModel.map { model in
                                        { model.focus(item.focusedHero) }
                                    })
