@@ -32,6 +32,7 @@ struct StremioTVApp: App {
             .environmentObject(core)
             .environmentObject(presenter)
             .environmentObject(ThemeManager.shared)
+            .environmentObject(ProfileStore.shared)
             .preferredColorScheme(.dark)
             .onAppear {
                 // DIAGNOSTIC (-tv-playertest): exercise the real root-replacement path without an account.
