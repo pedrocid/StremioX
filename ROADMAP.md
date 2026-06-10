@@ -1,58 +1,48 @@
 # Roadmap
 
-Where StremioX is headed, roughly in the order we'll build it. No fixed dates; it ships when it's good.
+Where StremioX is headed, in the order we'll build it. No fixed dates; it ships when it's good.
 
-The engine and add-on protocol already work, so the focus is everything around them: the best player and interface we can build, first on Apple TV and then across the rest of our devices. The aim is an all-in-one media hub, done one solid piece at a time.
+The engine and add-on protocol already work, so the focus is everything around them: the best player and interface we can build, first on Apple TV and then across the rest of our devices. The aim is an all-in-one media hub, done one solid piece at a time. Along the way, everything Stremio moved behind its paid tier (profiles with a PIN, skip intro and outro, catalog management, keyword stream filtering, enriched metadata, a download manager, live subtitle sync) ships here free, with our own implementations that depend on nobody's gated backend.
 
 ## The version path
 
-- **0.2.0 (shipped).** Skip intro and outro, and the cinematic full-bleed redesign of movie and episode pages.
-- **0.3.0 (next).** The native iPhone and iPad app, on the same engine as the Apple TV app, replacing the web-host build.
-- **0.x.** The features below, shipped one solid piece at a time.
-- **1.0.** Our own engine and our own streaming server, replacing the pieces we currently inherit. That milestone also brings a new identity for the app.
+- **0.2.x (shipped).** Skip intro and outro, the cinematic redesign, the living backdrop, ranked Watch Now with the two-level quality picker, instant preloaded auto-play next, and profiles.
+- **0.3.0 (in progress).** The native iPhone and iPad app on the same engine and player as the Apple TV app, replacing the web-host build. Profiles ride along on both platforms.
+- **0.4.0, stream intelligence.** A trust filter that drops cam rips, dead links, and fake quality labels, with fresh-release gating; keyword include and exclude filters; debrid built in (RealDebrid, AllDebrid, Premiumize, TorBox keys configured in-app, no separate configuration site); auto-play that sticks to the same release group across episodes so quality never jumps mid-season; a dual-layer Dolby Vision to HDR10 fallback so 4K remuxes play instead of failing; frame-rate matching.
+- **0.5.0, the player, finished.** Seek-preview thumbnails on the scrubber; dual subtitle tracks; image-based (PGS) subtitles; anime skip coverage through a second timestamp database; an auto-skip option with a cancel countdown; contributing skip timestamps back from the player; cross-device playback sync so you can pause on the TV and pick up on the iPad; sleep timer; picture-in-picture on iPhone and iPad.
+- **0.6.0, discovery and metadata.** Our own metadata enrichment (multi-source ratings, cast and crew with photos, studio badges, trailers); advanced search with real filters; poster rating overlays; HD logos and art; a release calendar and a "this week" rail; catalog management (move, hide, rename, merge into groups); pick which metadata add-on drives the home screen so one provider's outage never takes the app down.
+- **0.7.0, sync, casting, offline.** Trakt sign-in, sync, scrobbling, and calendar; AirPlay; a download manager for offline viewing (debrid and direct sources); live subtitle auto-sync; backup and restore of your whole setup as a shareable file.
+- **0.8.0, the theme studio.** Custom colors beyond the eight built-in accents; full player theming down to the seek bar; home layout variants; show-and-hide for tabs you never use; shareable theme files; backgrounds tinted from the focused title's artwork.
+- **0.9.0, hardening.** Cross-device QA, performance passes, and complete documentation of every page and setting. The 1.0 beta.
+- **1.0.** Our own engine and our own streaming server, replacing the pieces we currently inherit: our own ranking core, a built-in torrent engine so torrents work without debrid, a scraper runtime, and our own metadata service. The app's codec edge (TrueHD Atmos 7.1, DTS-HD MA, subtitles that render properly) becomes the headline rather than the surprise. That milestone also brings a new identity for the app.
 
-## Next up
+## After 1.0
 
-1. **Skip detection that works on everything.** 0.2.0 ships crowd-sourced timestamps merged with chapter markers. The next layers make it near-universal: anime coverage through a second timestamp database, on-device detection (audio fingerprinting across episodes, black-frame and silence analysis) for titles no database knows, contributing timestamps back from the player, and an auto-skip option with a cancel countdown.
-2. **iPhone and iPad.** The same native app on iOS and iPadOS, off the web host. This is 0.3.0.
-3. **Smart track selection, finished.** Preferred languages and per-show memory shipped; still to come are a forced-subtitles-only mode and reject lists for tracks you never want.
-4. **HDR and lossless audio, verified end to end.** HDR and Dolby Vision in 10-bit, a fallback that plays dual-layer Dolby Vision as HDR10 instead of failing, frame-rate matching, and audio passthrough so TrueHD, DTS-HD MA, and Atmos reach your receiver untouched.
-5. **Binge mode.** Auto-play next already works; making it stick to the same release group across episodes so quality never jumps mid-season, plus seek-preview thumbnails on the scrubber.
-6. **Cross-device continue watching.** Scrobbling and playback sync so you can pause on the TV and pick up on the iPad, alongside Trakt scrobbling, history, and a release calendar.
-7. **Downloads and Usenet.** Save a title to watch offline, and pull from Usenet alongside torrents and debrid.
-8. **Deep themes.** The accent system shipped; next are a theme studio, layout variants for the home screen, show-and-hide for tabs you never use, poster styling options, and a player themed down to the seek bar.
-9. **Stream intelligence, finished.** Ranking and Watch Now shipped; still to come are a trust filter that drops cam-rips, dead links, and fake quality labels, keyword include and exclude filters, and debrid built in so you don't need a separate configuration site.
-10. **Richer detail pages.** Ratings from more than one source, cast and crew with photos, studio badges, trailers, and where-to-stream context.
-11. **Better search.** Search across every catalog your add-ons expose, with real filters.
-12. **Profiles.** Separate libraries, history, and settings per person, with a parental PIN, and a way to back up or share your whole setup.
-13. **Pick your metadata source.** Let any metadata add-on drive the home screen, so one provider's outage never takes the app down.
+The bigger pieces, each its own chunk of work:
 
-## Further out
-
-The bigger pieces, each its own chunk of work, added as it earns its place:
-
-- **Our own engine and server (the 1.0 milestone).** The catalog, library, and streaming stack in our own code, built from the best open-source pieces, so the app depends on nobody's backend decisions but ours. A built-in torrent engine so torrents work without debrid, and a place to plug in your own scrapers, ride along with it.
-- **Live TV, done properly.** A real channel guide (EPG), catch-up and timeshift, recording, and multiview.
-- **Audio.** Music, podcasts, and audiobooks in the same app.
-- **Casting.** AirPlay first, then Chromecast, DLNA, and Roku.
-- **Watch together.** Synced playback with chat, on a relay you can host yourself.
-- **Anime, first-class.** Tracking, season merging, and a release feed.
-- **Deeper playback.** Shader upscaling, tone-mapping for SDR screens, and colour and audio profiles.
-- **Niceties.** Discord presence, a built-in ad and tracker blocker, and setup backup and restore.
+- **1.1, sources expanded.** Usenet; sideloadable scrapers from community repos; WebDAV and FTP sources.
+- **1.2, live TV done properly.** A real channel guide (EPG), catch-up and timeshift, recording, multiview, and in-guide previews.
+- **1.3, beyond video.** Music, podcasts, and audiobooks in the same app; first-class anime tracking with season merging and a release feed; watch-together with synced playback and chat on a relay you can host yourself.
+- **1.x niceties.** Casting beyond AirPlay (Chromecast, DLNA, Roku); shader upscaling and tone-mapping for SDR screens; audio and color profiles; Discord presence; a built-in ad and tracker blocker; a taste-scored discovery feed.
+- **2.0, everywhere.** Mac, Apple Vision, and Android, on the shared core.
 
 ## Shipped
 
+- **Profiles (0.2.6).** A "Who's watching?" picker at launch, per-profile themes and avatars, an optional 4-digit PIN, and the choice of sharing the main Stremio account or signing into a separate one per profile. Switching keeps every session valid.
+- **Playback flow fixes (0.2.5).** Leaving the player returns to the exact page playback started from. Auto-play next ranks every add-on's sources instead of taking the first answer, and preloads the next episode in the background at the halfway mark so it starts instantly. Real-Debrid sources rank last. The Watch button waits (with a live counter) until your add-ons finish answering.
+- **The living backdrop (0.2.2 to 0.2.4).** Home, Discover, and Library put the focused title's full artwork and details behind everything, on every row and grid, with content tucking underneath as you browse.
+- **The two-level quality picker (0.2.2).** Pick a tier (4K, 1080p, 720p, Others), then the flavor inside it (Dolby Vision, DTS-HD, BluRay, Atmos, WEB and the rest).
 - **Skip intro and outro (0.2.0).** A skip pill the moment you enter a known segment: crowd-sourced timestamps looked up by IMDB, TMDB, or TVDB id, merged with the file's named chapters, with sanity guards and on-device caching.
 - **The cinematic redesign (0.2.0).** Movie and episode pages went full-bleed: the artwork fills the screen, the details sit over it, and the dead space is gone. The focused tab follows your accent.
-- **Watch Now and stream ranking (0.1.7.x).** Sources ranked with cached and direct streams first, one press plays the best, long-press picks a resolution, and the full per-add-on list stays one button away.
+- **Watch Now and stream ranking (0.1.7.x).** Sources ranked with cached and direct streams first, one press plays the best, and the full per-add-on list stays one button away.
 - **Themes (0.1.7.x).** Eight accents plus a true-black OLED mode, persisted, with the whole app repainting live.
 - **Player resilience (0.1.7.x).** Bounded auto-retry with a reconnecting indicator when a stream hiccups, and an in-player source switcher that keeps your position.
 - **Library management (0.1.7.x).** Long-press menus on posters everywhere: dismiss from Continue Watching, add to library, mark watched and unwatched, remove from library. Finished titles leave Continue Watching on their own.
-- **Smart track selection (0.1.7.x).** Audio and subtitles picked from your preferred languages automatically, with per-show memory.
+- **Smart track selection (0.1.7.x).** Audio and subtitles picked from your preferred languages automatically.
 - **Apple TV, native on the engine.** Home with real Continue Watching and every catalog, plus Discover, Library, Detail, the full per-add-on source list, Search, and add-on management. Watched state, resume, and live progress all run through the engine.
 - **The player.** Full-screen libmpv with dependable focus and controls, a seekable scrubber with hold-to-seek, an options panel split into Audio, Subtitles, Aspect, and Episodes, audio and subtitle sync, aspect modes, language-grouped tracks, subtitle fonts for every script, and add-on load progress while streams arrive.
 - **The basics.** Sign-in, smooth 4K with TrueHD and Atmos and HDR that actually play, posters that load, solid caching, and a player you can always back out of.
-- **iPhone and iPad, for now.** A web UI with a native libmpv player and external-player handoff, until the native client replaces it.
+- **iPhone and iPad, for now.** A web UI with a native libmpv player and external-player handoff, until the native client replaces it (0.3.0, in progress).
 
 ## Distribution
 
