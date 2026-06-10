@@ -174,16 +174,18 @@ final class MPVMetalViewController: UIViewController {
             "reconnect=1,reconnect_streamed=1,reconnect_delay_max=7"))
 
         // Aggressive read-ahead cache: buffer far past the play head so transient network dips on big
-        // 4K streams don't stall playback (the main cause of on-device stutter). The forward cache is
-        // capped by RAM, so it's larger on the Apple TV (4GB) than on iPhone. Some back-buffer keeps
-        // short rewinds instant.
+        // 4K streams don't stall playback (the main cause of on-device stutter). On heavy remuxes
+        // (~100 Mbps) the BYTE cap binds long before the seconds cap, so it is what decides how much
+        // headroom a large file gets: 1 GiB is ~80s of remux and minutes of ordinary 4K. Capped by
+        // RAM, so larger on the Apple TV (4GB) than on iPhone. Back-buffer keeps short rewinds instant.
         checkError(mpv_set_option_string(mpv, "cache", "yes"))
-        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "300"))
-        checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "64MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "600"))
 #if os(tvOS)
-        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "512MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "1GiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "128MiB"))
 #else
-        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "256MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "384MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "64MiB"))
 #endif
 
 //        checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes")) // HDR passthrough

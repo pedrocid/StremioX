@@ -66,6 +66,8 @@ Everything the Apple TV app does today:
 
 - A "Who's watching?" picker at launch when more than one profile exists.
 - Each profile keeps its own name, avatar, accent theme, and background; switching re-themes the whole app instantly.
+- Each profile keeps its OWN watch history: its own Continue Watching, resume positions, and watched markers, invisible to the other profiles.
+- Profiles and their history sync through your Stremio account, so the same profiles with the same progress appear on every device running StremioX.
 - An optional 4-digit PIN gates any profile.
 - A profile can share the main Stremio account or sign into its own; switching keeps every session valid.
 
@@ -80,6 +82,7 @@ Everything the Apple TV app does today:
 **Playback**
 
 - The codecs actually work: TrueHD and Atmos, DTS-HD MA, EAC3, 4K, HDR, and Dolby Vision all play through libmpv, instead of silence or a black screen.
+- A deep read-ahead buffer (a gigabyte of forward cache on Apple TV) so even huge 4K remuxes ride out network dips without stalling.
 - Skip intro, recap, and credits: crowd-sourced timestamps (looked up by IMDB, TMDB, or TVDB id, so every catalog add-on works) merged with the file's own chapter markers, with sanity guards so a bad entry can never skip you into the middle of an episode. Cached on device.
 - Auto-play next episode, properly: the next episode is fetched and ranked in the background at the halfway mark, so when the credits end the best source is already chosen and starts instantly.
 - Smart track selection: audio and subtitles picked from your preferred languages automatically, with forced-subtitle handling.
@@ -97,12 +100,51 @@ Everything the Apple TV app does today:
 
 ## Installing
 
-The builds are attached to the [latest release](../../releases/latest). They are unsigned because this is a third-party Stremio client distributed outside the App Store, and there is no shared signing identity to ship a signed build. You re-sign them yourself:
+The builds are attached to the [latest release](../../releases/latest). They are unsigned because this is a third-party Stremio client distributed outside the App Store, and there is no shared signing identity to ship a signed build. You re-sign them yourself with one of the methods below. None of them require a jailbreak.
 
-- iPhone and iPad: Signulous, AltStore or SideStore, or Sideloadly. A free Apple ID works for personal use.
-- Apple TV: Sideloadly or Xcode, or a paid signing service.
+First, grab the IPA you need from the latest release: `StremioX-tvOS-x.y.z.ipa` for Apple TV, and the iOS IPA for iPhone and iPad.
 
-What I used myself is Signulous, and it was pretty straightforward. You pay once a year per device, upload the IPA, and it signs and installs within a minute.
+### The trade-off to understand first
+
+Apple only runs apps signed by a valid identity, and what you sign with decides how long the install lasts:
+
+- **A free Apple ID** signs for **7 days** at a time, then the app stops opening until you re-sign it (your settings and sign-in survive, it is just the signature that expires).
+- **A paid Apple Developer account** ($99/year) signs for **1 year**.
+- **A signing service** (Signulous, and similar) uses its own developer identity to give you 1-year installs without owning a developer account, for roughly $20/year per device.
+
+### Method 1: Signulous (easiest, what I use, works for all three devices)
+
+1. Go to [signulous.com](https://www.signulous.com), buy a device registration, and follow their steps to register your iPhone, iPad, or Apple TV (for Apple TV they walk you through finding its UDID).
+2. Wait for the registration to be processed (usually under an hour, can take a few).
+3. Open their upload page, upload the StremioX IPA, and it appears in your personal library.
+4. On the device, open the install link they give you and install. On Apple TV, installation happens over the browser flow they provide.
+5. Signed for a year. When a new StremioX version ships, upload the new IPA and install over the top; your sign-in and settings stay.
+
+### Method 2: Sideloadly (free, iPhone, iPad, and Apple TV)
+
+1. Download [Sideloadly](https://sideloadly.io) on your Mac or Windows PC and install it.
+2. iPhone or iPad: connect it over USB (or enable Wi-Fi sync in Finder/iTunes first and do it wirelessly).
+3. Apple TV: make sure it is on the same network as your computer. In Sideloadly, the Apple TV appears as a network device. On newer tvOS versions, you may need to pair first: on the Apple TV go to Settings, then Remotes and Devices, then Remote App and Devices, and keep that screen open while Sideloadly connects.
+4. Drag the StremioX IPA into Sideloadly, enter your Apple ID (a throwaway Apple ID is fine and keeps your main account clean), and press Start.
+5. First time only, on iPhone and iPad: go to Settings, then General, then VPN and Device Management, tap your Apple ID, and tap Trust.
+6. With a free Apple ID the app runs for 7 days. Re-run Sideloadly to re-sign; nothing inside the app is lost. With a paid developer account it runs for a year.
+
+### Method 3: AltStore or SideStore (free, iPhone and iPad only, auto re-sign)
+
+1. Install [AltStore](https://altstore.io) (needs AltServer running on a computer on your network) or [SideStore](https://sidestore.io) (after setup, no computer needed).
+2. Add the StremioX IPA through the app: in AltStore, My Apps, then the plus button, then pick the IPA.
+3. These re-sign the app for you automatically in the background, so the 7-day limit takes care of itself as long as the device sees AltServer (AltStore) once a week, or periodically for SideStore.
+4. Neither supports Apple TV.
+
+### Method 4: Xcode (free, for developers, all devices)
+
+1. On a Mac with Xcode installed, open Window, then Devices and Simulators. Connect the iPhone or iPad over USB; pair the Apple TV over the network (it shows under Discovered, and the Apple TV will display a pairing code).
+2. Drag the IPA onto the device in that window, or use a tool like [ios-app-signer](https://dantheman827.github.io/ios-app-signer/) to re-sign with your personal team first if Xcode refuses the unsigned IPA.
+3. Free Apple ID signs for 7 days, paid developer account for a year.
+
+### Updating
+
+Install the new version's IPA over the old one with the same method and the same Apple ID; your sign-in, profiles, and settings carry over. If you switch signing identities, iOS treats it as a different app and you start fresh.
 
 ## Security and privacy
 

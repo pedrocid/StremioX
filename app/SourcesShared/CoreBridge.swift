@@ -348,6 +348,10 @@ final class CoreBridge: ObservableObject {
     /// flips live instead of waiting for a library sync. Relies on meta_details being loaded (it is,
     /// since playback is launched from the detail screen).
     func markPlaybackWatched(_ meta: PlaybackMeta) {
+        guard ProfileStore.shared.activeUsesEngineHistory else {
+            ProfileStore.shared.markWatched(meta: meta)   // overlay profile: private history only
+            return
+        }
         if meta.type == "series" {
             var payload: [String: Any] = ["id": meta.videoId]
             if let season = meta.season { payload["season"] = season }
@@ -389,6 +393,10 @@ final class CoreBridge: ObservableObject {
     /// title finished at its end position would otherwise linger forever. Rewind keeps the library entry
     /// (still marked watched) and its new-episode notifications, unlike a full removal.
     func finishedWatching(libraryId: String) {
+        guard ProfileStore.shared.activeUsesEngineHistory else {
+            ProfileStore.shared.finishedWatching(metaId: libraryId)   // overlay profile
+            return
+        }
         dispatchCtx(["action": "RewindLibraryItem", "args": libraryId])
     }
 
@@ -470,6 +478,9 @@ final class CoreBridge: ObservableObject {
 
     /// Report the playback position to the engine Player (in ms), so Continue Watching reflects it live.
     func reportProgress(timeSeconds: Double, durationSeconds: Double) {
+        // Overlay profiles never feed the engine Player: it would write their progress into the
+        // ACCOUNT library bucket and sync it, which is exactly what profile separation prevents.
+        guard ProfileStore.shared.activeUsesEngineHistory else { return }
         guard durationSeconds > 0, timeSeconds >= 0 else { return }
         #if os(tvOS)
         let device = "tvOS"
