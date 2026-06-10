@@ -42,26 +42,58 @@ Discover and Library, with proper type, catalog, genre, and sort filters:
 
 ![Library](docs/screenshots/library.png)
 
+Profiles, the feature Stremio put behind its paywall, free. Each profile has its own look, an optional PIN, and optionally its own Stremio account:
+
+![Profiles](docs/screenshots/profiles.png)
+
 ## What you get
 
 **iPhone and iPad.** It hosts Stremio's live web interface in a WKWebView and plays the stream in a native libmpv player (MPVKit-GPL) so codecs and HDR actually work. It also runs Stremio's streaming server through nodejs-mobile for torrents. There's a "Play in" hand-off to Infuse or VLC. Because it follows the live web, a Stremio web update can occasionally disrupt it; a native iPhone and iPad client on stremio-core, like the Apple TV app, is in progress and will remove that dependency.
 
 **Apple TV.** There's no WebKit on tvOS, so this one is a fully native SwiftUI app. The part I'm proud of is that it runs on stremio-core, the same Rust engine the official apps use, compiled straight into the app. Because the real engine does the work, your catalogs, library, and Continue Watching come out right instead of being stitched together by hand. Same native libmpv player, same embedded server.
 
-A few things the Apple TV app does:
+Everything the Apple TV app does today:
 
-- Continue Watching and catalogs that match the official app. This was the thing that annoyed me most early on, when the first versions only showed one or two items.
-- Skip intro, recap, and credits. Crowd-sourced timestamps (by IMDB, TMDB, or TVDB id, so every catalog addon works) merged with the file's own chapter markers, with sanity guards so a bad entry can never skip you into the middle of an episode. Cached on device.
-- Watch Now: sources are ranked (cached and direct first, then resolution, remux, HDR) and one press plays the best one. A Quality button lists the best source per resolution and flavor (Dolby Vision, DTS-HD, BluRay, Atmos), and the full per-addon list stays one button away.
-- A living home screen: the focused title fills the background with its artwork, synopsis, and rating (real backdrop art, not stretched posters), on Home, Discover, and Library alike.
-- Full-bleed movie and episode pages: the artwork fills the screen and the details sit over it, instead of a small banner and a black void.
-- The codecs actually work. TrueHD and Atmos, DTS-HD MA, EAC3, HDR and Dolby Vision all play through libmpv, with real track selection (language-grouped, with sync adjustment) instead of silence or a black screen.
-- Eight accent themes plus a true-black OLED mode, and the whole app (including the focused tab) repaints live when you switch.
-- Watched and unwatched markers, by episode, by season, or for a whole series, plus long-press menus on posters for Continue Watching dismissal and library management.
+**Browsing**
+
+- Home with your real Continue Watching and every catalog from every installed add-on, matching the official app, because the official engine builds them.
+- A living backdrop on Home, Discover, and Library: whichever title you focus fills the screen with its real backdrop art, year, rating, runtime, genres, and synopsis, on every row and every grid, with rows tucking away underneath as you browse deeper.
+- Full-bleed movie and episode pages: the artwork owns the screen, the details sit over it, episode pages show the still, air date, runtime, rating, and synopsis.
+- Discover with type, catalog, and genre filters; Library with type and sort filters; search across your add-ons; add-on management built in.
+- Long-press menus on posters everywhere: dismiss from Continue Watching, add to or remove from the library, mark watched or unwatched, by episode, season, or series. Finished titles leave Continue Watching on their own.
+
+**Profiles**
+
+- A "Who's watching?" picker at launch when more than one profile exists.
+- Each profile keeps its own name, avatar, accent theme, and background; switching re-themes the whole app instantly.
+- An optional 4-digit PIN gates any profile.
+- A profile can share the main Stremio account or sign into its own; switching keeps every session valid.
+
+**Sources**
+
+- Watch Now: every source from every add-on is ranked (cached and direct first, then resolution, remux, HDR) and one press plays the best. The button stays greyed with a live add-on counter until your sources finish answering, so it always plays the best of everything, not the best of whatever loaded first.
+- A two-level Quality picker: choose the tier (4K, 1080p, 720p, Others), then the flavor inside it (Dolby Vision, DTS-HD, BluRay, Atmos, WEB and the rest), with duplicates collapsed.
+- Real-Debrid sources rank last and only play when nothing else exists, since the service purged its cache and throttles.
+- The full ranked per-add-on list is one button away, with per-add-on filtering, and survives titles that return thousands of sources.
+- Torrents stream through the embedded server; debrid and direct URLs play straight.
+
+**Playback**
+
+- The codecs actually work: TrueHD and Atmos, DTS-HD MA, EAC3, 4K, HDR, and Dolby Vision all play through libmpv, instead of silence or a black screen.
+- Skip intro, recap, and credits: crowd-sourced timestamps (looked up by IMDB, TMDB, or TVDB id, so every catalog add-on works) merged with the file's own chapter markers, with sanity guards so a bad entry can never skip you into the middle of an episode. Cached on device.
+- Auto-play next episode, properly: the next episode is fetched and ranked in the background at the halfway mark, so when the credits end the best source is already chosen and starts instantly.
+- Smart track selection: audio and subtitles picked from your preferred languages automatically, with forced-subtitle handling.
+- Language-grouped audio and subtitle pickers, subtitle styling (size, color, background), subtitle and audio sync adjustment, and bundled fonts for every script (CJK, Arabic, Hebrew, Thai, Devanagari and more).
+- A seekable scrubber with accelerating hold-to-seek, jump to start, fit / zoom / stretch aspect modes, previous / next and a direct episode list for series, and resume across sessions.
 - The player recovers on its own when a stream hiccups (bounded auto-retry with a reconnecting indicator), and you can switch to a different source mid-playback without losing your position.
-- A seekable scrubber with continuous hold-to-seek, fit / zoom / stretch aspect modes, subtitle styling, jump-to-start, previous / next and a direct episode list for series, and resume.
-- The detail page shows how many of your add-ons have answered while streams load ("Loaded 8/12 add-ons"), so you know whether to keep waiting.
-- Point it at your own streaming server if you run one.
+- Leaving the player puts you back on the exact page playback started from.
+- Live progress flows back to your account while you watch, so Continue Watching is correct on every device, and the watched marker flips automatically near the end.
+
+**The rest**
+
+- Eight accent themes plus a true-black OLED mode; the whole app, including the focused tab, repaints live when you switch.
+- The screen stays awake during playback and sleeps when paused.
+- Point it at your own streaming server if you run one; the embedded one runs out of the box.
 
 ## Installing
 
