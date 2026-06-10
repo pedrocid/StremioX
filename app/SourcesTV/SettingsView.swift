@@ -6,7 +6,9 @@ struct SettingsView: View {
     @EnvironmentObject private var account: StremioAccount
     @EnvironmentObject private var core: CoreBridge
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var profiles: ProfileStore
     @State private var serverOnline: Bool?
+    @State private var editingProfile: UserProfile?
     @AppStorage(SubtitleStyle.Key.size) private var subSize = SubtitleStyle.defaultSize
     @AppStorage(SubtitleStyle.Key.color) private var subColor = SubtitleStyle.defaultColor
     @AppStorage(SubtitleStyle.Key.background) private var subBackground = SubtitleStyle.defaultBackground
@@ -19,6 +21,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                     Text("Settings").screenTitleStyle()
+                    profilesSection
                     accountSection
                     serverSection
                     appearanceSection
@@ -40,6 +43,49 @@ struct SettingsView: View {
                 serverOnline = false
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    // MARK: Profiles
+
+    private var profilesSection: some View {
+        section("Profiles") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    ForEach(profiles.profiles) { profile in
+                        Button {
+                            editingProfile = profile
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(profile.avatar)
+                                Text(profile.name)
+                                if profile.hasPin { Image(systemName: "lock.fill") }
+                            }
+                        }
+                        .buttonStyle(ChipButtonStyle(selected: profile.id == profiles.activeID))
+                    }
+                    Button {
+                        editingProfile = UserProfile(name: "", avatar: "🎬", accentID: theme.accentID)
+                    } label: {
+                        Label("Add Profile", systemImage: "plus")
+                    }
+                    .buttonStyle(ChipButtonStyle())
+                    if profiles.profiles.count > 1 {
+                        Button {
+                            profiles.pickedThisLaunch = false   // re-presents the launch picker
+                        } label: {
+                            Label("Switch Profile", systemImage: "person.2.fill")
+                        }
+                        .buttonStyle(ChipButtonStyle())
+                    }
+                }
+                .padding(.vertical, Theme.Space.xs / 2)
+            }
+            Text("Select a profile to edit it. Each profile keeps its own look, PIN, and optionally its own Stremio account.")
+                .font(Theme.Typography.label).foregroundStyle(Theme.Palette.textTertiary)
+        }
+        .fullScreenCover(item: $editingProfile) { profile in
+            ProfileEditorView(original: profile)
         }
     }
 

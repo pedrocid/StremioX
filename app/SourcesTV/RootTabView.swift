@@ -21,16 +21,23 @@ final class PlayerPresenter: ObservableObject {
 /// the remote (see TVPlayerView), so the TabView still can't steal a single press.
 struct RootView: View {
     @EnvironmentObject private var presenter: PlayerPresenter
+    @EnvironmentObject private var profiles: ProfileStore
 
     var body: some View {
         ZStack {
             RootTabView()
                 .opacity(presenter.request == nil ? 1 : 0)
-                .disabled(presenter.request != nil)
+                // Unfocusable while the player or the profile picker is up, so the focus engine
+                // has nowhere to live but the front-most surface.
+                .disabled(presenter.request != nil || profiles.needsPicker)
             if let req = presenter.request {
                 TVPlayerView(url: req.url, title: req.title, meta: req.meta, episodes: req.episodes,
                              onClose: { presenter.request = nil })
                     .id(req.id)   // clean player teardown per request
+            }
+            // Who's watching? Once per cold start when there's a real choice; Settings re-opens it.
+            if profiles.needsPicker && presenter.request == nil {
+                ProfilePickerView()
             }
         }
     }
@@ -63,8 +70,9 @@ struct RootTabView: View {
         }
         .tint(theme.accent)
         .onAppear { applyTabBarAccent() }
-        .onChange(of: theme.accentID) { applyTabBarAccent() }
-        .onChange(of: theme.oled) { applyTabBarAccent() }
+        // The active profile owns the theme: mirror Settings changes into it so they survive a switch.
+        .onChange(of: theme.accentID) { applyTabBarAccent(); ProfileStore.shared.captureTheme() }
+        .onChange(of: theme.oled) { applyTabBarAccent(); ProfileStore.shared.captureTheme() }
     }
 
     /// The focused tab's pill is system white by default; recolor it to the active accent (with the
