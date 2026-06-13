@@ -378,7 +378,9 @@ struct iOSSearchView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                // LazyVStack: greedy on width so result rails / the link button can't push the column
+                // past the viewport and clip both edges (systemic fix S1).
+                LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
                     // Stremio's "paste a link" feature, at the top like tvOS.
                     Button { showOpenLink = true } label: {
                         Label(directLinksOnly ? "Play a direct link" : "Play a link or magnet", systemImage: "link")

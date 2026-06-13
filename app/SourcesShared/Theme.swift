@@ -25,7 +25,7 @@ enum Theme {
         static var accent: Color { ThemeManager.shared.accent }             // focus / selection / primary / progress
         static var accentBright: Color { ThemeManager.shared.accentBright } // focus glow highlight
         static var accentSoft: Color { accent.opacity(0.18) }
-        static var onAccent: Color { rgb(0.106, 0.067, 0.043) } // dark warm ink on the ember fill
+        static var onAccent: Color { ThemeManager.shared.onAccent } // accent-adaptive ink (was a fixed warm-brown that read orange on every accent)
         static let danger = rgb(0.851, 0.318, 0.278)            // #D9514C destructive (log out, remove)
     }
 

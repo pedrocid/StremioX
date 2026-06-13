@@ -26,7 +26,9 @@ struct iOSSignInView: View {
             ZStack {
                 Theme.Palette.canvas.ignoresSafeArea()
                 ScrollView {
-                    VStack(spacing: Theme.Space.lg) {
+                    // LazyVStack: greedy on width so the QR card / password field can't push the
+                    // column past the viewport and clip (systemic fix S1).
+                    LazyVStack(spacing: Theme.Space.lg) {
                         wordmark
                         intro
                         if mode == .link {

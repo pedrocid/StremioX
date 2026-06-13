@@ -85,6 +85,31 @@ final class ThemeManager: ObservableObject {
     var accent: Color { option.base }
     var accentBright: Color { option.bright }
 
+    /// Ink that sits ON the accent fill — primary-button labels (Watch/Play/Save/Sign In), on-accent
+    /// spinners, the profile "current" check. It was a hardcoded warm-brown literal, so it kept an
+    /// orange cast on top of ANY accent — the "still looks orange after switching to pink" report.
+    /// Now derived from the accent's luminance: Ember keeps its signature warm-brown; every other
+    /// accent gets a neutral near-black on light/mid fills or near-white on dark fills (max contrast,
+    /// no stale hue). Re-reads live when the accent changes, like `accent` itself.
+    var onAccent: Color {
+        if accentID == "ember" { return themeRGB(0.106, 0.067, 0.043) }   // signature warm ink on ember
+        return accentLuminance > 0.5 ? themeRGB(0.10, 0.10, 0.11) : themeRGB(0.97, 0.97, 0.96)
+    }
+
+    /// Perceived (Rec. 709) luminance of the current accent, for picking the on-accent ink.
+    private var accentLuminance: Double {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        #if canImport(UIKit)
+        UIColor(accent).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #else
+        // Guard the sRGB conversion (matches tintedDark): without it a nil conversion leaves r/g/b at
+        // 0, luminance reads 0, and every macOS accent would wrongly get the near-white ink.
+        guard let srgb = NSColor(accent).usingColorSpace(.sRGB) else { return 0.55 }   // mid → neutral-dark ink
+        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        #endif
+        return 0.2126 * Double(r) + 0.7152 * Double(g) + 0.0722 * Double(b)
+    }
+
     // Chrome: a dark near-black tinted toward the accent's hue (so "Warm" now follows the accent —
     // Ocean reads cool, Forest green, Mono near-neutral), or true black for OLED / AMOLED panels.
     var canvas: Color   { oled ? themeRGB(0, 0, 0)             : tintedDark(0.085) }
