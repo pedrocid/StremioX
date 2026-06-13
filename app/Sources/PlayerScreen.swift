@@ -1055,7 +1055,7 @@ struct PlayerScreen: View {
         let groups = Dictionary(grouping: tracks) { $0.lang.isEmpty ? "und" : $0.lang.lowercased() }
         var rs: [Row] = []
         for code in groups.keys.sorted(by: { langName($0) < langName($1) }) {
-            let ts = groups[code]!
+            guard let ts = groups[code] else { continue }   // defensive; key comes from groups.keys so always present
             if ts.count == 1 {
                 let t = ts[0]
                 rs.append(Row(label: langName(code), detail: t.title, selected: t.selected) { select(t.id) })

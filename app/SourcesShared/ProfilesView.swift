@@ -71,17 +71,13 @@ struct ProfilePickerView: View {
                 Text("Who's watching?")
                     .font(Theme.Typography.hero)
                     .foregroundStyle(Theme.Palette.textPrimary)
-                HStack(alignment: .top, spacing: Theme.Space.xl) {
-                    ForEach(store.profiles) { profile in
-                        ProfileCard(profile: profile, isCurrent: profile.id == store.activeID) {
-                            pick(profile)
-                        }
-                    }
-                    AddProfileCard {
-                        editorProfile = UserProfile(name: "", avatar: "🎬",
-                                                    accentID: theme.accentID)
-                    }
-                }
+                // Touch: scroll horizontally so 3+ cards (230pt each) don't overflow + clip both edges
+                // on a phone (systemic fix S1b). tvOS keeps the centered HStack for remote focus nav.
+                #if os(tvOS)
+                profileCards
+                #else
+                ScrollView(.horizontal, showsIndicators: false) { profileCards }
+                #endif
             }
             .padding(Theme.Space.screenInset)
             // Unfocusable while the PIN gate is up, so focus must move into the gate (on a real
@@ -104,6 +100,20 @@ struct ProfilePickerView: View {
             #else
             iOSSignInView()
             #endif
+        }
+    }
+
+    private var profileCards: some View {
+        HStack(alignment: .top, spacing: Theme.Space.xl) {
+            ForEach(store.profiles) { profile in
+                ProfileCard(profile: profile, isCurrent: profile.id == store.activeID) {
+                    pick(profile)
+                }
+            }
+            AddProfileCard {
+                editorProfile = UserProfile(name: "", avatar: "🎬",
+                                            accentID: theme.accentID)
+            }
         }
     }
 
@@ -151,7 +161,7 @@ struct PinGateOverlay: View {
                 SecureField("PIN", text: $input)
                     .font(Theme.Typography.body)
                     .numberPadKeyboard()
-                    .frame(width: 360)
+                    .frame(maxWidth: 360)
                     .onChange(of: input) { _ in
                         input = String(input.filter(\.isNumber).prefix(4))
                         wrong = false
@@ -296,7 +306,11 @@ struct ProfileEditorView: View {
         ZStack {
             Theme.Palette.canvas.ignoresSafeArea()
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.xl) {
+                // LazyVStack, not VStack: a plain VStack inside a vertical ScrollView sizes to its
+                // widest child, so the fixed-width fields + chip rows below pushed the whole editor
+                // wider than the phone and it clipped on BOTH edges ("ile", "ED Black"). LazyVStack is
+                // greedy on width and pins the column to the viewport. (Systemic fix S1.)
+                LazyVStack(alignment: .leading, spacing: Theme.Space.xl) {
                     Text(isNew ? "New Profile" : "Edit \(original.name)")
                         .font(Theme.Typography.screenTitle)
                         .foregroundStyle(Theme.Palette.textPrimary)
@@ -304,7 +318,7 @@ struct ProfileEditorView: View {
                     row("Name") {
                         TextField("Name", text: $draft.name)
                             .font(Theme.Typography.body)
-                            .frame(width: 600)
+                            .frame(maxWidth: 600)
                     }
 
                     row("Avatar") {
@@ -316,7 +330,7 @@ struct ProfileEditorView: View {
                     HStack(spacing: Theme.Space.md) {
                         TextField("Or type your own: any emoji or a letter", text: $customAvatar)
                             .font(Theme.Typography.body)
-                            .frame(width: 600)
+                            .frame(maxWidth: 600)
                             .onChange(of: customAvatar) { _ in
                                 // One grapheme (emoji-safe); single letters display uppercased.
                                 guard let first = customAvatar.first else { return }
@@ -374,7 +388,7 @@ struct ProfileEditorView: View {
                                     text: $pinText)
                             .font(Theme.Typography.body)
                             .numberPadKeyboard()
-                            .frame(width: 600)
+                            .frame(maxWidth: 600)
                             .onChange(of: pinText) { _ in
                                 pinText = String(pinText.filter(\.isNumber).prefix(4))
                             }

@@ -192,7 +192,8 @@ enum ProfileSync {
     }
 
     private static func post(_ path: String, body: [String: Any]) async throws -> Data {
-        var request = URLRequest(url: URL(string: "\(api)/\(path)")!)
+        guard let url = URL(string: "\(api)/\(path)") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

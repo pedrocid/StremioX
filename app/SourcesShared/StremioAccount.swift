@@ -207,7 +207,7 @@ final class StremioAccount: ObservableObject {
             }
             authKey = key
             setEmail(res.result?.user?.email ?? email)
-            isSignedIn = true
+            if !isSignedIn { isSignedIn = true }   // guard the @Published write so true->true can't re-fire observers
             log.info("signed in ok")
             await loadAddons()
         } catch {
@@ -222,7 +222,7 @@ final class StremioAccount: ObservableObject {
         signInError = nil
         authKey = token
         await backfillEmail()
-        isSignedIn = true
+        if !isSignedIn { isSignedIn = true }   // guard the @Published write so true->true can't re-fire observers
         log.info("signed in with link ok")
         await loadAddons()
     }
@@ -330,7 +330,8 @@ final class StremioAccount: ObservableObject {
     /// Like `post`, but with an untyped JSON body/response, for library items whose full shape we
     /// deliberately don't model (we preserve unknown fields rather than round-trip through Codable).
     private func postRaw(_ path: String, body: [String: Any]) async throws -> Data {
-        var req = URLRequest(url: URL(string: "\(api)/\(path)")!)
+        guard let url = URL(string: "\(api)/\(path)") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -376,7 +377,8 @@ final class StremioAccount: ObservableObject {
     }
 
     private func post<B: Encodable, R: Decodable>(_ path: String, body: B) async throws -> R {
-        var req = URLRequest(url: URL(string: "\(api)/\(path)")!)
+        guard let url = URL(string: "\(api)/\(path)") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)

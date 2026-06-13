@@ -4,6 +4,19 @@ All notable changes to StremioX, newest first. StremioX is Apple TV first, with 
 
 What is planned next is in [ROADMAP.md](ROADMAP.md). To request a feature or report a bug, start a [GitHub Discussion](https://github.com/mamaclapper/StremioX/discussions) or [open an issue](https://github.com/mamaclapper/StremioX/issues).
 
+## 0.3.0 beta 9 (prerelease) - 2026-06-13
+
+The one from the full audit. A 7-area review (layout, code, player, theming, server, parity, accessibility) found 97 issues; this build lands the systemic root-cause fixes and every crash.
+
+### Fixed
+- **The viewport clipping is fixed at the source, on every screen.** beta8 fixed Home/Discover/Library; the same root cause (a plain VStack inside a scroll view stretching to its widest row) still clipped the Profile editor, the "Who's watching?" picker, Search, and Sign In. All now pin to the screen width. The Add Profile screen, which rendered cut off on both edges, is verified correct on device.
+- **The accent now fully recolors.** Button labels and on-accent text kept a warm/orange tint on top of any accent (the "still looks orange after switching to pink"). The on-accent ink is now derived from the accent itself, so a pink or blue theme is pink or blue throughout. Ember keeps its signature warm ink.
+- **Two crashes removed.** Opening the Subtitles/Audio panel on a dual-track title, and any networking path that built a URL from a runtime value, are now guarded instead of force-unwrapped.
+- **Sign-in is hardened further.** The signed-in flag is only written when it actually changes, closing the last path that could re-enter an observer (the class of bug behind the beta7 sign-in freeze).
+
+### Notes
+- This is the first of several builds working through the full audit. Still queued: the macOS player presentation, in-player next/previous episode, marking titles watched so they leave Continue Watching, an iPad/Mac layout that uses the wider screen, and a full accessibility pass.
+
 ## 0.3.0 beta 8 (prerelease) - 2026-06-13
 
 The one that fixes the phone. beta 7's real-device testing surfaced an app-freezing sign-in bug and a cluster of iPhone-only layout breakage — this is the fix pass for all of it.
