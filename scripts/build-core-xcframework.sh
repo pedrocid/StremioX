@@ -5,7 +5,9 @@
 #   iOS is tier-2, so its std is prebuilt: just add the targets, no build-std.
 set -euo pipefail
 cd "$(dirname "$0")/../core"
-source "$HOME/.cargo/env" 2>/dev/null || true
+if [ -f "$HOME/.cargo/env" ]; then
+  source "$HOME/.cargo/env"
+fi
 
 BUILDSTD="-Z build-std=std,panic_abort"
 LIB="libstremiox_core.a"

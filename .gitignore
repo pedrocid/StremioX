@@ -6,6 +6,7 @@ web/
 **/.build/
 
 # --- packaged outputs ---
+/out/
 *.ipa
 *.xcarchive
 *.dSYM.zip

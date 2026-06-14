@@ -186,7 +186,11 @@ targets:
       - sdk: AVKit.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.stremiox.tv
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedrocid.stremiox.tv
+        DEVELOPMENT_TEAM: 746CH7LGJ5
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: StremioX TV Personal Development
+        CODE_SIGN_IDENTITY: Apple Development
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Player/StremioX-Bridging.h
         MARKETING_VERSION: "0.3.0"
         CURRENT_PROJECT_VERSION: "99"
