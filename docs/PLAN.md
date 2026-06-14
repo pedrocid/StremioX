@@ -42,7 +42,7 @@ close the loose ends, ship a clean 0.3.0. No new features until Phase 2 is large
 ## The plan
 
 ### Phase 0: stabilize and correct course (do FIRST, then release a beta)
-1. Server: keep the error handler + the 11471 gate; revert NO_HTTPS_SERVER / HLS_V2_DISABLED / the cache cap so the server runs as Stremio runs it (decision: confirm lean-vs-full with the user). One build, all three platforms green.
+1. Server: DONE. Reverted NO_HTTPS_SERVER / HLS_V2_DISABLED / cache-cap; kept the error handler + the 11471 gate. Runs as Stremio runs it. All three platforms green.
 2. Multi-install: single canonical build path + lsregister cleanup; document it.
 3. Settle the version; cut the next beta with the critical fixes (server crash, sign-in freeze, layout, accent, CW clearing + metadata).
 4. You publish the GitHub release (public action stays with you). I prepare the changelog + tag.
