@@ -236,7 +236,7 @@ struct iOSHomeView: View {
             .navigationDestination(for: FeaturedHeroItem.self) { item in
                 iOSDetailView(id: item.id, type: item.type, title: item.name)
             }
-            .iOSPlayerCover($player, account: account)
+            .iOSPlayerCover($player, account: account, core: core)
         }
         // Reseed the pool as content arrives; the model ignores no-op reseeds so rotation isn't reset
         // by routine engine re-emits.
@@ -250,6 +250,11 @@ struct iOSHomeView: View {
             hero.seed(heroCandidates, reduceMotion: reduceMotion)
         }
         .onChange(of: core.revision) { _ in hero.seed(heroCandidates, reduceMotion: reduceMotion) }
+        // Addons hydrate ASYNC, after onAppear — so configureMetaSources(core.addons) above often ran with
+        // an empty set, leaving tmdb:/tvdb:/kitsu: hero items un-enriched (no rating/logo/backdrop on Home,
+        // Discover, Library CW). Re-configure + re-seed once addons arrive so enrichment can reach the
+        // installed meta add-on. tvOS already does this (HomeView/LiveView .onChange(of: core.addons.count)).
+        .onChange(of: core.addons.count) { _ in FeaturedHeroModel.configureMetaSources(core.addons); hero.seed(heroCandidates, reduceMotion: reduceMotion) }
         .onDisappear { hero.stop() }
     }
 
@@ -362,6 +367,11 @@ struct iOSLibraryView: View {
             hero.seed(heroCandidates, reduceMotion: reduceMotion)
         }
         .onChange(of: core.revision) { _ in hero.seed(heroCandidates, reduceMotion: reduceMotion) }
+        // Addons hydrate ASYNC, after onAppear — so configureMetaSources(core.addons) above often ran with
+        // an empty set, leaving tmdb:/tvdb:/kitsu: hero items un-enriched (no rating/logo/backdrop on Home,
+        // Discover, Library CW). Re-configure + re-seed once addons arrive so enrichment can reach the
+        // installed meta add-on. tvOS already does this (HomeView/LiveView .onChange(of: core.addons.count)).
+        .onChange(of: core.addons.count) { _ in FeaturedHeroModel.configureMetaSources(core.addons); hero.seed(heroCandidates, reduceMotion: reduceMotion) }
         .onDisappear { hero.stop() }
     }
 
@@ -468,7 +478,7 @@ struct iOSSearchView: View {
             }
             // Present the paste-a-link player HERE (the Search tab is not a sheet) so the macOS root player
             // fills the window cleanly. On iOS this is a fullScreenCover; on macOS it hoists to MacPlayerHost.
-            .iOSPlayerCover($pastedPlayer, account: account)
+            .iOSPlayerCover($pastedPlayer, account: account, core: core)
         }
     }
 
@@ -644,6 +654,11 @@ struct iOSDiscoverView: View {
         // The grid changes whenever a different type/catalog/genre is selected, which bumps revision —
         // reseed so the hero pool tracks the visible catalog.
         .onChange(of: core.revision) { _ in hero.seed(heroCandidates, reduceMotion: reduceMotion) }
+        // Addons hydrate ASYNC, after onAppear — so configureMetaSources(core.addons) above often ran with
+        // an empty set, leaving tmdb:/tvdb:/kitsu: hero items un-enriched (no rating/logo/backdrop on Home,
+        // Discover, Library CW). Re-configure + re-seed once addons arrive so enrichment can reach the
+        // installed meta add-on. tvOS already does this (HomeView/LiveView .onChange(of: core.addons.count)).
+        .onChange(of: core.addons.count) { _ in FeaturedHeroModel.configureMetaSources(core.addons); hero.seed(heroCandidates, reduceMotion: reduceMotion) }
         .onDisappear { hero.stop() }
     }
 
@@ -718,16 +733,21 @@ extension View {
     /// Present `PlayerScreen` for an `iOSPlayerLaunch` over the browse screen, saving progress to
     /// the account (the same wiring `iOSDetailView` uses) when the launch carries a `PlaybackMeta`.
     @ViewBuilder func iOSPlayerCover(_ launch: Binding<iOSPlayerLaunch?>,
-                                     account: StremioAccount) -> some View {
+                                     account: StremioAccount, core: CoreBridge) -> some View {
         platformFullScreenPlayerCover(item: launch) { item in
             PlayerScreen(
                 url: item.url, title: item.title, headers: item.headers, resumeSeconds: item.resume,
                 recordMeta: item.meta, recordQualityText: item.qualityText, recordIsTorrent: item.isTorrent,
+                // Feed the engine Player so Continue Watching updates live + watched time is tracked (the
+                // direct-resume / paste-a-link path was missing this, like the detail covers). It's keyed off
+                // the engine's loaded Player, so it runs regardless of `item.meta` and no-ops if none is loaded.
                 onProgress: { pos, dur in
+                    core.reportProgress(timeSeconds: pos, durationSeconds: dur)
                     guard let meta = item.meta else { return }
                     Task { [weak account] in await account?.saveProgress(for: meta, positionSeconds: pos, durationSeconds: dur) }
                 },
                 onSeek: { pos, dur in
+                    core.reportProgress(timeSeconds: pos, durationSeconds: dur)
                     guard let meta = item.meta else { return }
                     Task { [weak account] in await account?.saveProgress(for: meta, positionSeconds: pos, durationSeconds: dur) }
                 },

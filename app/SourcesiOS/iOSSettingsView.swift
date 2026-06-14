@@ -91,8 +91,13 @@ struct iOSSettingsView: View {
             // SourcePreferences.shared, so fold those into the active profile the same way.
             .onChange(of: sourcePrefs.useAddonOrder) { _ in ProfileStore.shared.capturePlayback() }
             .onChange(of: sourcePrefs.typeOrder) { _ in ProfileStore.shared.capturePlayback() }
-            // Text size is per-profile (mirrored into ThemeManager); fold the stepper's change back
-            // into the active profile so it survives a switch/relaunch, same as tvOS RootTabView.
+            // Appearance is per-profile (accent + OLED chrome + text size, all mirrored into
+            // ThemeManager); fold each change back into the active profile so it survives a
+            // switch/relaunch, same as tvOS RootTabView. Without the accent/oled captures, the
+            // launch-time applyTheme(active) in ProfileStore.init would write the profile's stale
+            // accentID back over the just-picked one, resetting the accent on every relaunch.
+            .onChange(of: theme.accentID) { _ in ProfileStore.shared.captureTheme() }
+            .onChange(of: theme.oled) { _ in ProfileStore.shared.captureTheme() }
             .onChange(of: theme.textScale) { _ in ProfileStore.shared.captureTheme() }
             // Device-scoped settings (audioOutput, forceSDRTonemap, perfMode, directLinksOnly) are
             // deliberately NOT folded back: they describe THIS device, not the viewer.

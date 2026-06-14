@@ -109,31 +109,37 @@ struct iOSDetailView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
-                    // Live (tv / channel / events) gets its own stripped-down page BEFORE the movie
-                    // fallback: backdrop + name + LIVE badge + the channel's source list, with no VOD
-                    // chrome (no trailer chip, no movie synopsis framing, no skip/chapter UI). It still
-                    // builds the player launch with the meta `type` preserved so the player's live path
-                    // engages (see PlayerScreen + MPVMetalViewController.configureLiveMode).
-                    if LiveTypes.contains(type) {
-                        livePage
-                    } else {
-                        // The Sources action in the hero row scrolls to this anchor.
-                        hero { withAnimation { proxy.scrollTo(Self.sourcesAnchor, anchor: .top) } }
-                        if type == "series" {
-                            episodeList
+        // A GeometryReader gives us the EXACT viewport width to HARD-cap the content column with
+        // `.frame(width:)`. `maxWidth: .infinity` only sets an upper bound — it does not stop a child
+        // whose intrinsic width exceeds the screen (the hero's single-line metaRow / action button row on
+        // a narrow iPhone) from stretching the ZStack wider than the viewport, which then renders with a
+        // negative leading origin and clipped every hero element off the left edge. A concrete width can't
+        // be exceeded, so the column (and hero) stay pinned to the screen. macOS was wide enough to never
+        // overflow, which is why this only bit iOS.
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                        // Live (tv / channel / events) gets its own stripped-down page BEFORE the movie
+                        // fallback: backdrop + name + LIVE badge + the channel's source list, with no VOD
+                        // chrome (no trailer chip, no movie synopsis framing, no skip/chapter UI). It still
+                        // builds the player launch with the meta `type` preserved so the player's live path
+                        // engages (see PlayerScreen + MPVMetalViewController.configureLiveMode).
+                        if LiveTypes.contains(type) {
+                            livePage
                         } else {
-                            sourceSection.id(Self.sourcesAnchor)
+                            // The Sources action in the hero row scrolls to this anchor.
+                            hero(width: geo.size.width) { withAnimation { proxy.scrollTo(Self.sourcesAnchor, anchor: .top) } }
+                            if type == "series" {
+                                episodeList
+                            } else {
+                                sourceSection.id(Self.sourcesAnchor)
+                            }
                         }
                     }
+                    .padding(.bottom, Theme.Space.xl)
+                    .frame(width: geo.size.width, alignment: .leading)
                 }
-                .padding(.bottom, Theme.Space.xl)
-                // Cap the whole detail column to the viewport width and pin it leading, so no single
-                // section (hero, season chips, source rows) can stretch the column wider than the
-                // screen and center it, which clipped every leading element off the left edge.
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(Theme.Palette.canvas.ignoresSafeArea())
@@ -153,7 +159,13 @@ struct iOSDetailView: View {
                 }
             }
         }
-        .onDisappear { core.unloadMeta(); torrentPrime?.cancel() }
+        // Do NOT unloadMeta here. On iOS, pushing the per-episode page (iOSEpisodeStreams) fires THIS
+        // detail page's onDisappear AFTER the episode page has already loaded its streams — so calling
+        // unloadMeta would wipe `metaDetails` out from under the episode page (~0.3s later), leaving its
+        // source list empty ("No stream add-ons responded"). That race is why SERIES found no streams on
+        // iOS while MOVIES (no child push) and macOS (different onDisappear timing) worked. The next
+        // detail's loadMeta replaces the resident meta anyway, so leaving it loaded is harmless.
+        .onDisappear { torrentPrime?.cancel() }
         // Flip the spinner to "No sources found" if resolution hangs past 12s (mirrors iOSEpisodeStreams).
         .task {
             try? await Task.sleep(for: .seconds(12))
@@ -165,8 +177,11 @@ struct iOSDetailView: View {
                 PlayerScreen(
                     url: launch.url, title: launch.title, headers: launch.headers, resumeSeconds: launch.resume,
                     recordMeta: launch.meta, recordQualityText: launch.qualityText, recordIsTorrent: launch.isTorrent,
-                    onProgress: { pos, dur in Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
-                    onSeek: { pos, dur in Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
+                    // reportProgress feeds the engine Player (TimeChanged) so Continue Watching updates live and
+                    // watched time is tracked; saveProgress keeps the signed-in remote/overlay sync. iOS was only
+                    // doing the latter, so nothing reached the engine and CW never updated (tvOS does both).
+                    onProgress: { pos, dur in core.reportProgress(timeSeconds: pos, durationSeconds: dur); Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
+                    onSeek: { pos, dur in core.reportProgress(timeSeconds: pos, durationSeconds: dur); Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
                     onClose: { presentation = nil }
                 )
                 .ignoresSafeArea()
@@ -214,7 +229,7 @@ struct iOSDetailView: View {
 
     /// Hero: full-bleed backdrop + scrim + title / meta / action row / synopsis. `scrollToSources`
     /// is wired into the movie action row's "Sources" button (the tvOS 3-action twin).
-    private func hero(scrollToSources: @escaping () -> Void) -> some View {
+    private func hero(width: CGFloat, scrollToSources: @escaping () -> Void) -> some View {
         ZStack(alignment: .bottomLeading) {
             backdrop
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
@@ -236,13 +251,13 @@ struct iOSDetailView: View {
             }
             .padding(.horizontal, Theme.Space.md)
             .padding(.bottom, Theme.Space.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: width, alignment: .leading)
         }
-        // Cap the ZStack's OWN reported width to the viewport. The inner backdrop/title clamps make
-        // each child flexible, but a ZStack still reports the widest child's demand UP to the scroll
-        // column; without this the column went wider than the screen and centered, shoving the title /
-        // buttons / sections off the left edge. Mirrors tvOS DetailView.hero + FeaturedHeroView.
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Hard-cap the hero to the EXACT viewport width passed from the body's GeometryReader. maxWidth:
+        // .infinity only bounds the upper limit — a non-wrapping child (the hero action button row) still
+        // reported a width wider than the screen, so the synopsis + buttons spilled off BOTH edges. A
+        // concrete width forces every child (incl. the button row, which compresses) to fit the screen.
+        .frame(width: width, alignment: .leading)
     }
 
     /// Full-bleed artwork with the same two scrims tvOS uses: a vertical canvas fade so the lower text
@@ -312,20 +327,27 @@ struct iOSDetailView: View {
     /// Rating · year · runtime · genres, same order and tokens as tvOS DetailView.metaRow.
     private var metaRow: some View {
         let m = meta
-        return HStack(spacing: Theme.Space.md) {
+        var facts: [String] = []
+        if let r = m?.releaseInfo { facts.append(r) }
+        if let rt = m?.runtime { facts.append(rt) }
+        let genres = m?.genres ?? []
+        if !genres.isEmpty { facts.append(genres.prefix(3).joined(separator: " · ")) }
+        return HStack(spacing: 6) {
             if let imdb = m?.imdbRating {
-                HStack(spacing: 6) {
-                    Image(systemName: "star.fill").foregroundStyle(Theme.Palette.accent)
-                    Text(imdb)
-                }
+                Image(systemName: "star.fill").foregroundStyle(Theme.Palette.accent)
+                Text(imdb)
             }
-            if let r = m?.releaseInfo { Text(r) }
-            if let rt = m?.runtime { Text(rt) }
-            let genres = m?.genres ?? []
-            if !genres.isEmpty { Text(genres.prefix(3).joined(separator: " · ")).lineLimit(1) }
+            // Facts collapse into ONE truncating line. A row of separate non-truncating Texts had a
+            // minimum width near the iPhone's portrait width, so it forced the hero wider than the screen
+            // and the right edge clipped even with the GeometryReader cap. A single tail-truncating Text
+            // keeps the row's minimum width tiny, so it always fits and the genres just truncate.
+            if !facts.isEmpty {
+                Text(facts.joined(separator: "  ·  ")).lineLimit(1).truncationMode(.tail)
+            }
         }
         .font(Theme.Typography.label)
         .foregroundStyle(Theme.Palette.textSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Series — hero Resume/Play affordance (mirrors tvOS DetailView.seriesPrimaryEpisode)
@@ -515,6 +537,9 @@ struct iOSDetailView: View {
             states: core.streamAddonStates(),
             settleTimedOut: settleTimedOut,
             continuity: rememberedQuality,
+            // Hero already shows Watch + Quality + the "Sources" scroll button, so suppress this list's
+            // duplicate control bar; the grouped per-add-on list shows directly instead.
+            showsPrimaryControls: false,
             play: { stream, url in Task { await playStream(stream, url: url) } }
         )
         .padding(.horizontal, Theme.Space.md)
@@ -906,9 +931,12 @@ struct iOSEpisodeStreams: View {
     }
 
     var body: some View {
+        // Hard-cap the column to the viewport width (see iOSDetailView.body) so the episode hero's wide
+        // single-line metaRow can't stretch the ZStack past the screen and clip the title/synopsis off the left.
+        GeometryReader { geo in
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.lg) {
-                hero
+                hero(width: geo.size.width)
                 iOSSourceList(
                     groups: StreamRanking.rankedGroups(displayGroups(core.streamGroups(forStreamId: video.id))),
                     progress: core.streamLoadProgress(forStreamId: video.id),
@@ -920,7 +948,8 @@ struct iOSEpisodeStreams: View {
                 .padding(.horizontal, Theme.Space.md)
             }
             .padding(.bottom, Theme.Space.xl)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: geo.size.width, alignment: .leading)
+        }
         }
         .background(Theme.Palette.canvas.ignoresSafeArea())
         .navigationTitle(video.episodeTitle)
@@ -947,8 +976,8 @@ struct iOSEpisodeStreams: View {
             PlayerScreen(
                 url: launch.url, title: launch.title, headers: launch.headers, resumeSeconds: launch.resume,
                 recordMeta: launch.meta, recordQualityText: launch.qualityText, recordIsTorrent: launch.isTorrent,
-                onProgress: { pos, dur in Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
-                onSeek: { pos, dur in Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
+                onProgress: { pos, dur in core.reportProgress(timeSeconds: pos, durationSeconds: dur); Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
+                onSeek: { pos, dur in core.reportProgress(timeSeconds: pos, durationSeconds: dur); Task { [weak account] in await account?.saveProgress(for: launch.meta, positionSeconds: pos, durationSeconds: dur) } },
                 onClose: { player = nil }
             )
             .ignoresSafeArea()
@@ -957,7 +986,7 @@ struct iOSEpisodeStreams: View {
 
     /// Episode backdrop + show eyebrow + episode title + S·E / air date / facts + overview, mirroring
     /// the tvOS `CoreEpisodeStreams` header block.
-    private var hero: some View {
+    private func hero(width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             backdrop
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
@@ -984,10 +1013,10 @@ struct iOSEpisodeStreams: View {
             }
             .padding(.horizontal, Theme.Space.md)
             .padding(.bottom, Theme.Space.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: width, alignment: .leading)
         }
-        // Cap the episode hero ZStack's own width to the viewport (same fix as iOSDetailView.hero).
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Hard-cap the episode hero to the EXACT viewport width (same fix as iOSDetailView.hero).
+        .frame(width: width, alignment: .leading)
     }
 
     private var backdrop: some View {
@@ -1016,21 +1045,26 @@ struct iOSEpisodeStreams: View {
     }
 
     private var metaRow: some View {
-        HStack(spacing: Theme.Space.md) {
+        var facts: [String] = []
+        if let released = video.released, released.count >= 10 { facts.append(String(released.prefix(10))) }
+        if let rt = meta.runtime { facts.append(rt) }
+        let genres = meta.genres
+        if !genres.isEmpty { facts.append(genres.prefix(3).joined(separator: " · ")) }
+        return HStack(spacing: 6) {
             Text("S\(season) · E\(video.episode ?? 0)")
-            if let released = video.released, released.count >= 10 { Text(String(released.prefix(10))) }
-            if let rt = meta.runtime { Text(rt) }
             if let imdb = meta.imdbRating {
-                HStack(spacing: 6) {
-                    Image(systemName: "star.fill").foregroundStyle(Theme.Palette.accent)
-                    Text(imdb)
-                }
+                Image(systemName: "star.fill").foregroundStyle(Theme.Palette.accent)
+                Text(imdb)
             }
-            let genres = meta.genres
-            if !genres.isEmpty { Text(genres.prefix(3).joined(separator: " · ")).lineLimit(1) }
+            // One truncating tail line (see iOSDetailView.metaRow) so this row's minimum width stays tiny
+            // and can't force the episode hero wider than the iPhone screen (right-edge clip).
+            if !facts.isEmpty {
+                Text(facts.joined(separator: "  ·  ")).lineLimit(1).truncationMode(.tail)
+            }
         }
         .font(Theme.Typography.label)
         .foregroundStyle(Theme.Palette.textSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Play the tapped source: prime the engine + torrent (same path as the movie list), then present
@@ -1133,6 +1167,11 @@ struct iOSSourceList: View {
     var states: [CoreBridge.StreamAddonState] = []
     var settleTimedOut = false                          // resolution gave up → show "No sources" not a spinner
     var continuity: String? = nil                       // remembered quality signature → same-quality Watch-in pick
+    /// When false, the primary Watch / Quality / All-sources control bar is hidden and the grouped list is
+    /// shown directly. The MOVIE detail page passes false because its hero already shows Watch + Quality +
+    /// a "Sources" scroll button (rendering both looked like duplicate controls). The episode + live pages
+    /// keep the default true — there the control bar is the only primary action.
+    var showsPrimaryControls = true
     let play: (CoreStream, URL) -> Void
 
     @State private var sourceFilter: String? = nil      // nil = all add-ons
@@ -1212,12 +1251,14 @@ struct iOSSourceList: View {
                     emptyState
                 }
             } else {
-                controlBar
+                if showsPrimaryControls { controlBar }
                 if loading && progress.total > 0 {
                     Text("Still finding more · \(progress.loaded)/\(progress.total) add-ons")
                         .font(Theme.Typography.label).foregroundStyle(Theme.Palette.textTertiary)
                 }
-                if showAllSources {
+                // Reveal the grouped list on demand (All-sources toggle) OR always when the control bar is
+                // hidden — otherwise the movie rail would be empty, since the toggle lives in that bar.
+                if showAllSources || !showsPrimaryControls {
                     if groups.count > 1 { filterBar }
                     groupedList
                 }

@@ -224,10 +224,12 @@ final class MPVMetalViewController: PlatformViewController {
             exit(1)
         }
 
-        // Apply the "fast" profile first so it sets the baseline (cheaper scaling, no debanding/dither,
-        // static HDR peak); the explicit options below override anything we care about. This is the
-        // documented remedy for 4K frame drops on constrained GPUs, which is what stutters on device.
-        checkError(mpv_set_option_string(mpv, "profile", "fast"))
+        // Do NOT apply mpv's "fast" profile by default. It overrides gpu-next/libplacebo's sharp default
+        // upscaler (lanczos) with bilinear and disables debanding/dither, which made upscaled video look
+        // soft/blurry — the "player size/quality is pathetic vs the 0.1.6 IPA" report. v0.1.6 left this
+        // OFF and looked sharp. Apple-Silicon's gpu-next + VideoToolbox defaults are already performant;
+        // re-enable per-device ONLY if a constrained GPU stutters on 4K (the original reason it was added).
+        // checkError(mpv_set_option_string(mpv, "profile", "fast"))
 
         // https://mpv.io/manual/stable/#options
 #if DEBUG
