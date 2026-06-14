@@ -4,6 +4,23 @@ All notable changes to StremioX, newest first. StremioX is Apple TV first, with 
 
 What is planned next is in [ROADMAP.md](ROADMAP.md). To request a feature or report a bug, start a [GitHub Discussion](https://github.com/mamaclapper/StremioX/discussions) or [open an issue](https://github.com/mamaclapper/StremioX/issues).
 
+## 0.3.0 beta 14 (prerelease) - 2026-06-14
+
+The iPhone pass. Every fix below was reproduced and verified on an iOS build, not just the Mac.
+
+### Fixed
+- **Series and shows find their sources now, not just movies.** Movies resolved sources but episodes came up empty, because opening an episode pushed a new screen and the detail page behind it tore down the engine's loaded title a fraction of a second later, wiping the streams the episode page had just fetched. The detail page no longer does that, so an episode loads its full ranked source list (one test episode went from "no sources" to 65).
+- **The detail and episode pages no longer clip off the screen edges on iPhone.** In portrait, the title, rating line, buttons, and synopsis were cut off on both sides. The page is now hard-pinned to the screen width and the facts line truncates cleanly, so nothing runs off the edge. (Landscape, iPad, and Mac were already fine.)
+- **What you watch lands in Continue Watching, and remembers where you stopped.** The iPhone, iPad, and Mac player never told the engine your playback position, so nothing showed up in Continue Watching and resume did nothing. It now reports progress to the engine the same way Apple TV does.
+- **Movie pages no longer show the Watch / Quality / Sources controls twice.** The hero already has them, so the source list below now shows just the grouped per-add-on sources.
+- **Ratings, logos, and backdrops now appear for TMDB-catalog titles.** On Home, Discover, and Library, titles from a TMDB catalog (including everything in Continue Watching) showed no rating and no backdrop, because the hero looked for that art before your add-ons had finished loading and never tried again. It now refreshes once add-ons are ready, matching Apple TV.
+- **The featured hero shows one clean backdrop.** It used to layer a sharp still over a blurred copy of the same image, which read as two overlapping pictures. It is now a single full-bleed backdrop.
+- **Your theme color sticks.** Changing the accent color and reopening the app reset it to the default; the chosen color now persists across relaunches.
+- **Sharper video.** The player had been forcing a low-quality "fast" scaling profile that softened upscaled video; that override is gone, restoring the crisp image from the 0.1.6 build.
+
+### Notes
+- Still sequenced for the next build: surfacing the embedded server's log in Settings to pin down the streaming server dying on some devices, in-player next/previous episode, an HTTP/HLS quality selector, a Continue Watching "Details" option, a startup animation on iPhone/iPad/Mac to match Apple TV, and the rest of the 100+ item audit (docs/REVIEW-WORKLIST.md).
+
 ## 0.3.0 beta 13 (prerelease) - 2026-06-14
 
 The build that fixes "no sources", plus the macOS player and the featured hero.
