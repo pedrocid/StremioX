@@ -686,20 +686,23 @@ struct CoreStreamList: View {
     var meta: PlaybackMeta? = nil
     var episodes: [CoreVideo] = []               // the season's episodes (series only), for the player's Prev/Next/Episodes
     @EnvironmentObject private var core: CoreBridge
+    @EnvironmentObject private var account: StremioAccount
     @EnvironmentObject private var theme: ThemeManager
     @State private var sourceFilter: String? = nil
     @State private var showAllSources = false   // the full ranked list is revealed on demand (Watch-Now first)
     @State private var showQualityPicker = false   // level 1: pick a resolution tier
     @State private var qualityTier: String? = nil  // level 2: pick a flavor inside that tier
     @State private var settleTimedOut = false      // opens the Watch-Now gate even if an add-on hangs
+    @State private var directAddonGroups: [CoreStreamSourceGroup] = []
+    @State private var directAddonLoading = false
     @EnvironmentObject private var presenter: PlayerPresenter   // root-replacement player presentation
     @AppStorage(PlaybackSettings.Key.directLinksOnly) private var directLinksOnly = false
 
     var body: some View {
-        let groups = StreamRanking.rankedGroups(displayGroups(core.streamGroups()))   // best source first within each add-on
+        let groups = StreamRanking.rankedGroups(displayGroups(mergedStreamGroups()))   // best source first within each add-on
         let streamCount = groups.reduce(0) { $0 + $1.streams.count }
         let visible = groups.filter { sourceFilter == nil || $0.addon == sourceFilter }
-        let addons = core.streamLoadProgress()                       // (loaded, total) stream add-ons
+        let addons = mergedStreamLoadProgress()                       // (loaded, total) stream add-ons
         let loadingAddons = addons.total == 0 || addons.loaded < addons.total
         // Per-series quality memory: bias Watch Now toward the quality signature of
         // whatever this title played last (per profile), so a series you watch in a
@@ -816,6 +819,9 @@ struct CoreStreamList: View {
             try? await Task.sleep(for: .seconds(12))
             settleTimedOut = true
         }
+        .task(id: meta?.videoId ?? title) {
+            await loadDirectAddonStreams()
+        }
     }
 
     /// Resolution dropdown for the Watch button (long-press): the best source at each available quality.
@@ -832,6 +838,65 @@ struct CoreStreamList: View {
             guard !streams.isEmpty else { return nil }
             return CoreStreamSourceGroup(id: group.id, addon: group.addon, streams: streams)
         }
+    }
+
+    private func mergedStreamGroups() -> [CoreStreamSourceGroup] {
+        let coreGroups = core.streamGroups()
+        var seen = Set(coreGroups.map { $0.id.lowercased() })
+        let extras = directAddonGroups.filter { group in
+            guard !seen.contains(group.id.lowercased()) else { return false }
+            seen.insert(group.id.lowercased())
+            return true
+        }
+        return coreGroups + extras
+    }
+
+    private func mergedStreamLoadProgress() -> (loaded: Int, total: Int) {
+        let coreProgress = core.streamLoadProgress()
+        let directTotal = account.streamSources.count
+        let directLoaded = directAddonLoading ? 0 : directTotal
+        return (coreProgress.loaded + directLoaded, coreProgress.total + directTotal)
+    }
+
+    private func loadDirectAddonStreams() async {
+        guard let meta else { return }
+        let sources = account.streamSources
+        guard !sources.isEmpty else {
+            directAddonGroups = []
+            directAddonLoading = false
+            return
+        }
+        directAddonLoading = true
+        let type = meta.type
+        let id = meta.videoId
+        var groups: [CoreStreamSourceGroup] = []
+        await withTaskGroup(of: CoreStreamSourceGroup?.self) { tasks in
+            for source in sources {
+                tasks.addTask { await Self.fetchDirectStreams(base: source.base, addon: source.name, type: type, id: id) }
+            }
+            for await group in tasks {
+                if let group { groups.append(group) }
+            }
+        }
+        let order = Dictionary(sources.enumerated().map { ($1.base, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        groups.sort { (order[$0.id] ?? .max) < (order[$1.id] ?? .max) }
+        directAddonGroups = groups
+        directAddonLoading = false
+    }
+
+    private static func fetchDirectStreams(base: String, addon: String, type: String, id: String) async -> CoreStreamSourceGroup? {
+        let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard let url = URL(string: "\(base)/stream/\(type)/\(escaped).json") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 25
+        request.setValue("Mozilla/5.0 (Apple TV; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/604.1",
+                         forHTTPHeaderField: "User-Agent")
+        struct Response: Decodable { let streams: [CoreStream]? }
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let response = try? JSONDecoder().decode(Response.self, from: data),
+              let streams = response.streams, !streams.isEmpty else { return nil }
+        return CoreStreamSourceGroup(id: base, addon: addon, streams: streams)
     }
 
     /// Play a stream by handing a request to the root, which swaps the whole shell out for the player

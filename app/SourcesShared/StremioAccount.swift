@@ -61,13 +61,25 @@ struct AddonManifest: Decodable {
     let idPrefixes: [String]?
 }
 
-struct AddonDescriptor: Decodable {
+struct AddonDescriptor: Decodable, Identifiable {
     let transportUrl: String
     let manifest: AddonManifest
+    var id: String { transportUrl }
     /// Base URL for resource requests (manifest URL minus the trailing /manifest.json).
     var baseUrl: String { transportUrl.replacingOccurrences(of: "/manifest.json", with: "") }
     var providesStreams: Bool { manifest.resources.contains { $0.name == "stream" } }
     var providesMeta: Bool { manifest.resources.contains { $0.name == "meta" } }
+    var providesSubtitles: Bool { manifest.resources.contains { $0.name == "subtitles" } }
+    var hasCatalogs: Bool { !(manifest.catalogs ?? []).isEmpty }
+    var host: String { URL(string: transportUrl)?.host ?? transportUrl }
+    var capabilities: String {
+        var caps: [String] = []
+        if hasCatalogs { caps.append("Catalogs") }
+        if providesStreams { caps.append("Streams") }
+        if providesMeta { caps.append("Metadata") }
+        if providesSubtitles { caps.append("Subtitles") }
+        return caps.isEmpty ? "Add-on" : caps.joined(separator: " · ")
+    }
     /// id-prefixes this addon handles for meta lookups (resource-level first, else manifest-level).
     var metaIdPrefixes: [String] {
         (manifest.resources.first { $0.name == "meta" }?.idPrefixes) ?? manifest.idPrefixes ?? []
@@ -137,12 +149,16 @@ final class StremioAccount: ObservableObject {
     /// Convenience: just the stream-addon base URLs (count shown in Settings, etc.).
     var streamAddonBases: [String] { streamSources.map(\.base) }
 
-    private let api = "https://api.strem.io/api"
+    private let api: String
+    private let e2eMode: Bool
+    var isE2EMode: Bool { e2eMode }
     /// The active profile's Keychain slot (shared profiles use the primary slot), so a profile
     /// switch re-points every token read and write at once.
     private var tokenKey: String { ProfileStore.shared.activeKeychainAccount }
     private let emailKey = "stremiox.email"
     private let log = Logger(subsystem: "com.stremiox.app", category: "account")
+    private var accountAddons: [AddonDescriptor] = []
+    private var localAddons: [AddonDescriptor] = []
 
     private var authKey: String? {
         get { Keychain.string(tokenKey) }
@@ -150,14 +166,34 @@ final class StremioAccount: ObservableObject {
     }
 
     init() {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        api = (env["STREMIOX_API_BASE_URL"] ?? "https://api.strem.io/api").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        e2eMode = env["STREMIOX_API_BASE_URL"] != nil || env["STREMIOX_E2E_AUTH_KEY"] != nil
+        #else
+        api = "https://api.strem.io/api"
+        e2eMode = false
+        #endif
         email = Self.displayEmail()
         migrateTokenToKeychain()
+        Task { await loadLocalAddons() }
+        #if DEBUG
+        if e2eMode {
+            authKey = env["STREMIOX_E2E_AUTH_KEY"] ?? "stremiox-e2e"
+            isSignedIn = true
+            email = env["STREMIOX_E2E_EMAIL"] ?? "e2e@stremiox.local"
+            Task { await loadAddons() }
+            return
+        }
+        #endif
         if authKey != nil { isSignedIn = true; Task { await loadAddons() } }
     }
 
     /// Re-read the session for the newly active profile (called after a profile switch).
     func reloadForActiveProfile() {
         signInError = nil
+        accountAddons = []
+        localAddons = []
         streamSources = []
         addons = []
         email = Self.displayEmail()
@@ -167,6 +203,7 @@ final class StremioAccount: ObservableObject {
         // iOS sign-in. Assigning only on change keeps this method safe for any observer.
         let signedIn = authKey != nil
         if isSignedIn != signedIn { isSignedIn = signedIn }
+        Task { await loadLocalAddons() }
         if signedIn { Task { await loadAddons() } }
     }
 
@@ -228,7 +265,8 @@ final class StremioAccount: ObservableObject {
     }
 
     func signOut() {
-        authKey = nil; isSignedIn = false; streamSources = []; addons = []
+        authKey = nil; isSignedIn = false; accountAddons = []
+        publishMergedAddons()
         setEmail(nil)
     }
 
@@ -244,23 +282,190 @@ final class StremioAccount: ObservableObject {
     }
 
     func loadAddons() async {
-        guard let key = authKey else { return }
+        await loadLocalAddons()
+        guard let key = authKey else {
+            publishMergedAddons()
+            return
+        }
         struct Req: Encodable { let authKey: String; let update = true }
-        struct Res: Decodable { struct R: Decodable { let addons: [AddonDescriptor] }; let result: R? }
         do {
-            let res: Res = try await post("addonCollectionGet", body: Req(authKey: key))
-            let addons = res.result?.addons ?? []
-            self.addons = addons
+            let res: AddonCollectionResponse = try await post("addonCollectionGet", body: Req(authKey: key))
+            publishAccountAddons(res.addons)
             // Keep the user's addon order (addonCollectionGet = their Stremio order) so the sources
             // and catalogs they prioritised come first. (A broken `.sorted` was scrambling it.)
-            streamSources = addons.filter { $0.providesStreams }
-                .map { StreamSource(base: $0.baseUrl, name: $0.manifest.name) }
             log.info("loaded \(self.addons.count) addons, \(self.streamSources.count) stream addons")
             if email == nil { await backfillEmail() }   // older sessions saved no email
         } catch {
             // keep whatever we had, but surface why the refresh failed
             log.error("loadAddons failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    @discardableResult
+    func installAddon(manifestURL rawURL: String) async throws -> [AddonDescriptor] {
+        let url = try Self.normalizedAddonManifestURL(rawURL)
+        let local = try await Self.fetchAddonDescriptor(from: url)
+        saveLocalAddonURL(url.absoluteString)
+        upsertLocalAddon(local)
+
+        if let key = authKey {
+            struct Req: Encodable {
+                let authKey: String
+                let update = true
+                let addFromURL: [String]
+            }
+            do {
+                let res: AddonCollectionResponse = try await post(
+                    "addonCollectionGet",
+                    body: Req(authKey: key, addFromURL: [url.absoluteString])
+                )
+                if let errorMessage = res.errorMessage {
+                    log.error("remote add-on install failed: \(errorMessage, privacy: .public)")
+                } else {
+                    publishAccountAddons(res.addons)
+                }
+            } catch {
+                log.error("remote add-on install failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        publishMergedAddons()
+        return addons
+    }
+
+    private func publishAccountAddons(_ addons: [AddonDescriptor]) {
+        accountAddons = addons
+        publishMergedAddons()
+    }
+
+    private func publishMergedAddons() {
+        var seen = Set<String>()
+        let merged = (accountAddons + localAddons).filter { addon in
+            let key = addon.transportUrl.lowercased()
+            guard !seen.contains(key) else { return false }
+            seen.insert(key)
+            return true
+        }
+        addons = merged
+        streamSources = merged.filter { $0.providesStreams }
+            .map { StreamSource(base: $0.baseUrl, name: $0.manifest.name) }
+    }
+
+    private var localAddonURLsKey: String {
+        let profile = ProfileStore.shared.activeID?.uuidString ?? "primary"
+        return "stremiox.localAddonURLs." + profile
+    }
+
+    private func localAddonURLs() -> [String] {
+        guard let raw = Keychain.string(localAddonURLsKey),
+              let data = raw.data(using: .utf8),
+              let urls = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return urls
+    }
+
+    private func saveLocalAddonURL(_ url: String) {
+        var urls = localAddonURLs()
+        if !urls.contains(where: { $0.caseInsensitiveCompare(url) == .orderedSame }) {
+            urls.append(url)
+        }
+        if let data = try? JSONEncoder().encode(urls),
+           let raw = String(data: data, encoding: .utf8) {
+            Keychain.set(raw, for: localAddonURLsKey)
+        }
+    }
+
+    private func loadLocalAddons() async {
+        let urls = localAddonURLs()
+        guard !urls.isEmpty else {
+            localAddons = []
+            publishMergedAddons()
+            return
+        }
+        var loaded: [AddonDescriptor] = []
+        for raw in urls {
+            guard let url = URL(string: raw),
+                  let addon = try? await Self.fetchAddonDescriptor(from: url) else { continue }
+            loaded.append(addon)
+        }
+        localAddons = loaded
+        publishMergedAddons()
+    }
+
+    private func upsertLocalAddon(_ addon: AddonDescriptor) {
+        localAddons.removeAll { $0.transportUrl.caseInsensitiveCompare(addon.transportUrl) == .orderedSame }
+        localAddons.append(addon)
+    }
+
+    private static func fetchAddonDescriptor(from url: URL) async throws -> AddonDescriptor {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("Mozilla/5.0 (Apple TV; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/604.1",
+                         forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let manifest = try JSONDecoder().decode(AddonManifest.self, from: data)
+        return AddonDescriptor(transportUrl: url.absoluteString, manifest: manifest)
+    }
+
+    private struct AddonCollectionResponse: Decodable {
+        struct R: Decodable { let addons: [AddonDescriptor] }
+        struct APIError: Decodable { let message: String? }
+        let addons: [AddonDescriptor]
+        let errorMessage: String?
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if let error = try? c.decode(APIError.self, forKey: .error) {
+                errorMessage = error.message ?? "Add-on request failed."
+            } else {
+                errorMessage = try? c.decode(String.self, forKey: .error)
+            }
+            if let direct = try? c.decode([AddonDescriptor].self, forKey: .addons) {
+                addons = direct
+            } else {
+                addons = (try? c.decode(R.self, forKey: .result).addons) ?? []
+            }
+        }
+
+        enum CodingKeys: String, CodingKey { case addons, result, error }
+    }
+
+    enum AddonInstallError: LocalizedError {
+        case signedOut
+        case invalidURL
+        case api(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .signedOut: return "Sign in before adding add-ons."
+            case .invalidURL: return "Enter a valid add-on manifest URL."
+            case .api(let message): return message
+            }
+        }
+    }
+
+    private static func normalizedAddonManifestURL(_ raw: String) throws -> URL {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { throw AddonInstallError.invalidURL }
+        if value.lowercased().hasPrefix("stremio://") {
+            value = "https://" + String(value.dropFirst("stremio://".count))
+        } else if !value.contains("://") {
+            value = "https://" + value
+        }
+        while value.hasSuffix("/") { value.removeLast() }
+        if value.lowercased().hasSuffix("/configure") {
+            value = String(value.dropLast("/configure".count))
+        }
+        if !value.lowercased().hasSuffix("/manifest.json") && !value.lowercased().hasSuffix("/stremio/v1") {
+            value += "/manifest.json"
+        }
+        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme), url.host?.isEmpty == false else {
+            throw AddonInstallError.invalidURL
+        }
+        return url
     }
 
     /// Backfill the account email (for sessions that predate email capture).
